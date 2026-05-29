@@ -4,8 +4,9 @@ Optional **Godot 4** sidecar for four-layer stem mixing. The default app config 
 
 ## Requirements
 
-- [Godot 4.x](https://godotengine.org/download) (4.2+ recommended)
-- Set `audio.godot_executable` in `config/default.yaml`, or set `GODOT4` / add `godot` to `PATH`
+- [Godot 4.x](https://godotengine.org/download) (4.2+ recommended) — **not included in the repo** (see root `.gitignore`)
+- Place `Godot_v4.6.3-stable_win64.exe` in the **project root**, then set `audio.godot_executable` in `config/default.yaml`
+- Or set `GODOT4` / add `godot` to `PATH`
 
 ## Architecture
 

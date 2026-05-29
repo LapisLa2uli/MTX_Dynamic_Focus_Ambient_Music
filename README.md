@@ -14,7 +14,7 @@ The app watches what you are doing (process names, window titles, input cadence�
 | **Python 3.10+** | Yes | Recommended: Conda env `MTX` |
 | **Conda or Miniconda** | Recommended | Keeps dependencies isolated |
 | **Working audio output** | Yes | Uses your Windows default playback device |
-| **Godot 4.x** | Optional | Only if `audio.backend: godot` in config |
+| **Godot 4.x** | Optional | Not in repo (gitignored); download and place in project root if using `audio.backend: godot` |
 
 ---
 
@@ -78,22 +78,62 @@ You should see `OK` for every module and exit code `0`. If any package shows `LE
 
 The **default** config uses the built-in Python mixer and does **not** require Godot. Install Godot only if you want four-layer stem mixing via a sidecar process.
 
-1. Download **Godot 4.2+** (Standard, not .NET): [godotengine.org/download](https://godotengine.org/download)
-2. Extract the ZIP. On Windows you get `Godot_v4.x-stable_win64.exe`.
-3. Point the app at it using **one** of:
-   - **Config file** — edit `config/default.yaml`:
-     ```yaml
-     audio:
-       backend: godot
-       godot_executable: "D:/path/to/Godot_v4.6.3-stable_win64.exe"
-     ```
-   - **Environment variable** — in PowerShell before launching:
-     ```powershell
-     $env:GODOT4 = "D:\path\to\Godot_v4.6.3-stable_win64.exe"
-     ```
-   - **PATH** — add the Godot folder to your system `PATH` so `godot` runs from any terminal.
+**The Godot executable is not in this repository** — it is listed in `.gitignore` (`Godot_v4.6.3-stable_win64.exe`). After cloning, you must download and place it yourself.
 
-If Godot fails to start, leave `fallback_to_placeholder: true` (default) and the app will use the built-in mixer instead.
+#### Download
+
+1. Go to [godotengine.org/download](https://godotengine.org/download)
+2. Download **Godot 4.2+**, **Standard** edition (not .NET)
+3. Extract the ZIP — on Windows you get a single file such as `Godot_v4.6.3-stable_win64.exe`
+
+#### Where to put it
+
+Copy the executable into the **project root** (same folder as `README.md` and `config/`):
+
+```
+Adaptive Focus Music System/
+  Godot_v4.6.3-stable_win64.exe   ← place here
+  README.md
+  config/
+  godot/
+  src/
+  ...
+```
+
+You can use a different Godot 4.x version, but then update both the filename and `godot_executable` in config to match.
+
+#### Configure the app
+
+Edit [`config/default.yaml`](config/default.yaml):
+
+```yaml
+audio:
+  backend: godot                    # switch from placeholder to godot
+  godot_executable: "D:/stuff/Adaptive Focus Music System/Godot_v4.6.3-stable_win64.exe"
+  godot_project: godot
+  godot_port: 8765
+  fallback_to_placeholder: true     # use built-in mixer if Godot fails
+```
+
+Use **forward slashes** in the path (works on Windows). Replace `D:/stuff/Adaptive Focus Music System` with the absolute path to **your** clone of this repo.
+
+Example if your project lives at `C:\Users\You\Projects\Adaptive Focus Music System`:
+
+```yaml
+  godot_executable: "C:/Users/You/Projects/Adaptive Focus Music System/Godot_v4.6.3-stable_win64.exe"
+```
+
+Leave `backend: placeholder` if you do not install Godot — the app works without it.
+
+**Alternatives to editing the config file**
+
+- Environment variable (PowerShell, current session):
+  ```powershell
+  $env:GODOT4 = "D:\stuff\Adaptive Focus Music System\Godot_v4.6.3-stable_win64.exe"
+  ```
+- Add Godot’s folder to your system `PATH` (then `godot_executable` can stay empty if `godot` is found automatically)
+
+If Godot fails to start, leave `fallback_to_placeholder: true` and the app will use the built-in mixer instead.
 
 ---
 
@@ -201,7 +241,8 @@ audio:
   prefer_mp3: true              # use your .mp3 files over synthetic .wav
   fallback_to_placeholder: true # if godot fails, use built-in mixer
   assets_dir: assets/audio
-  godot_executable: ""          # path to Godot 4.x exe (godot backend only)
+  godot_project: godot
+  godot_executable: ""          # required for godot backend — see "Install Godot" above
   godot_port: 8765
 
 context:
@@ -221,6 +262,15 @@ privacy:
   collect_process_names: true
   log_activity: false             # off by default
 ```
+
+When using the Godot backend, set `backend: godot` and point `godot_executable` at the exe in the **project root** (gitignored — not included in the repo):
+
+```yaml
+  backend: godot
+  godot_executable: "D:/stuff/Adaptive Focus Music System/Godot_v4.6.3-stable_win64.exe"
+```
+
+Replace the path with the absolute path to your clone. Use forward slashes on Windows.
 
 Environment overrides use the prefix `ACS_` (e.g. `ACS_AUDIO__MASTER_VOLUME=0.8`).
 
