@@ -1,0 +1,17 @@
+; Engine configuration file.
+; Godot 4.x sidecar audio server for Adaptive Cognitive Soundscape.
+
+config_version=5
+
+[application]
+config/name="Adaptive Soundscape Audio"
+config/description="Layered adaptive audio sidecar (TCP JSON API)"
+run/main_scene="res://scenes/main.tscn"
+
+[audio]
+driver/enable_input=false
+
+[display]
+window/size/viewport_width=320
+window/size/viewport_height=240
+window/size/mode=0

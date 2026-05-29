@@ -40,10 +40,18 @@ class CognitiveConfig(BaseModel):
 
 
 class AudioConfig(BaseModel):
+    backend: str = "placeholder"
     sample_rate: int = 44100
     block_size: int = 1024
-    master_volume: float = 0.35
+    master_volume: float = 0.75
+    prefer_mp3: bool = True
     assets_dir: str = "assets/audio"
+    godot_project: str = "godot"
+    godot_executable: str = ""
+    godot_host: str = "127.0.0.1"
+    godot_port: int = 8765
+    godot_startup_timeout: float = 8.0
+    fallback_to_placeholder: bool = True
 
 
 class Settings(BaseSettings):

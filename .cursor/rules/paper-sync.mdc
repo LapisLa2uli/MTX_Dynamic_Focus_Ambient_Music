@@ -1,0 +1,35 @@
+---
+description: Keep paper/main.tex aligned with codebase changes
+globs:
+  - src/**/*.py
+  - config/**/*
+  - godot/**/*
+  - paper/main.tex
+alwaysApply: false
+---
+
+# Paper sync rule
+
+When you change **implementation** in this repo, also update [`paper/main.tex`](paper/main.tex) (especially **§2.2 场景化产品提案**) so the report matches the code.
+
+## Must sync
+
+| Code change | Paper section |
+|-------------|---------------|
+| Audio backend (Godot API, commands, fallback, placeholder default) | §2.2 音频后端与 Godot API 集成, 表 `tab:godot-api` |
+| Five-subsystem architecture | §2.2 系统架构与方法论 |
+| Focus formula / symbols | §2.2 表 `tab:acs-vars`, 式 \eqref{eq:focus-raw}, \eqref{eq:focus-ema} |
+| Transition timings ($T_d$, $T_c$, $\tau_f$, $\tau_r$, $\varepsilon$) | §2.2 + 有效性分析 |
+| Config keys in `config/default.yaml` | §2.2 配置项（`backend`, `prefer_mp3`, `fallback_to_placeholder` 等） |
+| Privacy model | §2.2 隐私与本地部署 |
+
+## Terminology
+
+- Use **Godot Engine** (optional sidecar + TCP JSON) or **PlaceholderMixer** (default, sounddevice).
+- Describe **four-layer stems** (ambient / rhythm / harmonic / accent) when using Godot; flat main+pad assets otherwise.
+- Python host + optional Godot audio sidecar; default playback is in-process via PlaceholderMixer.
+
+## Do not sync
+
+- Part 1 literature review unless citations change.
+- Hypothetical user-study numbers in 有效性分析 unless the user asks to revise them.

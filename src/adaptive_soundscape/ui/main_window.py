@@ -136,7 +136,15 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(self._audio_btn)
         btn_row.addStretch()
         root.addLayout(btn_row)
+
+        self._status_label = QLabel("")
+        self._status_label.setStyleSheet("color: #c07070; font-size: 12px;")
+        self._status_label.setWordWrap(True)
+        root.addWidget(self._status_label)
         root.addStretch()
+
+    def set_status_message(self, message: str) -> None:
+        self._status_label.setText(message)
 
     def update_status(
         self,

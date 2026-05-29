@@ -8,7 +8,7 @@ from pathlib import Path
 from PyQt6.QtCore import QTimer
 
 from adaptive_soundscape.activity.monitor import ActivityMonitor
-from adaptive_soundscape.audio.placeholder_mixer import PlaceholderMixer
+from adaptive_soundscape.audio.factory import create_audio_backend
 from adaptive_soundscape.cognitive.estimator import FocusEstimator
 from adaptive_soundscape.cognitive.signals import FocusSignals
 from adaptive_soundscape.context.classifier import classify_snapshot
@@ -53,12 +53,7 @@ class AdaptiveSoundscapeApp:
         )
         assets = resolve_assets_dir(self.settings)
         self._ensure_audio_assets(assets)
-        self.audio = PlaceholderMixer(
-            assets_dir=assets,
-            sample_rate=self.settings.audio.sample_rate,
-            block_size=self.settings.audio.block_size,
-            master_volume=self.settings.audio.master_volume,
-        )
+        self.audio = create_audio_backend(self.settings, assets)
         self.window = MainWindow()
         self._manual_override = False
         self._current_context = WorkContext.UNKNOWN
@@ -82,11 +77,9 @@ class AdaptiveSoundscapeApp:
         self.bus.subscribe(FocusUpdated, self._on_focus)
 
     def _ensure_audio_assets(self, assets_dir: Path) -> None:
-        assets_dir.mkdir(parents=True, exist_ok=True)
-        from adaptive_soundscape.audio.asset_generator import generate_all
+        from adaptive_soundscape.audio.asset_generator import ensure_assets
 
-        if not any(assets_dir.glob("*.wav")):
-            generate_all(assets_dir)
+        ensure_assets(assets_dir)
 
     def start(self) -> None:
         if self.settings.app.logging_enabled:
@@ -106,10 +99,44 @@ class AdaptiveSoundscapeApp:
             self.audio.stop()
             self._audio_running = False
             self.window._audio_btn.setText("Start Audio")
+            self.window.set_status_message("")
         else:
-            self.audio.start()
+            decision = self.transition.decide(
+                self._current_context, self._current_focus, self._focus_score
+            )
+            try:
+                self.audio.start(profile_id=decision.profile_id)
+            except Exception as exc:
+                logger.exception("Failed to start audio backend")
+                if self.settings.audio.fallback_to_placeholder:
+                    try:
+                        assets = resolve_assets_dir(self.settings)
+                        self.audio.stop()
+                        self.audio = create_audio_backend(
+                            self._placeholder_settings(), assets
+                        )
+                        self.audio.start(profile_id=decision.profile_id)
+                        self.window.set_status_message(
+                            "Using built-in audio mixer (Godot unavailable)."
+                        )
+                    except Exception as fallback_exc:
+                        logger.exception("Placeholder audio fallback failed")
+                        self.window.set_status_message(f"Audio error: {fallback_exc}")
+                        return
+                else:
+                    self.window.set_status_message(f"Audio error: {exc}")
+                    return
             self._audio_running = True
             self.window._audio_btn.setText("Stop Audio")
+            self._apply_audio(decision)
+
+    def _placeholder_settings(self) -> Settings:
+        """Return settings forced to the placeholder mixer backend."""
+        return self.settings.model_copy(
+            update={
+                "audio": self.settings.audio.model_copy(update={"backend": "placeholder"})
+            }
+        )
 
     def _on_override(self, enabled: bool) -> None:
         self._manual_override = enabled
@@ -185,8 +212,11 @@ class AdaptiveSoundscapeApp:
             )
 
     def _apply_audio(self, decision) -> None:
-        self.audio.crossfade_to(decision.profile_id, decision.crossfade_seconds)
-        self.audio.set_parameters(decision.parameters)
+        self.audio.crossfade_to(
+            decision.profile_id,
+            decision.crossfade_seconds,
+            decision.parameters,
+        )
         self.bus.publish(
             AudioParametersUpdated(
                 profile_id=decision.profile_id,
