@@ -1,0 +1,2 @@
+[console_scripts]
+adaptive-soundscape = adaptive_soundscape.__main__:main

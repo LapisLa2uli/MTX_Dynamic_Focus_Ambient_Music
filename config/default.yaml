@@ -1,0 +1,29 @@
+app:
+  poll_interval_ms: 1000
+  logging_enabled: false
+
+privacy:
+  collect_window_titles: true
+  collect_process_names: true
+  log_activity: false
+
+context:
+  dwell_seconds_min: 30
+  dwell_seconds_max: 60
+  default_dwell_seconds: 45
+
+transition:
+  deep_focus_crossfade_seconds: 12.0
+  distraction_recovery_seconds: 4.5
+  cooldown_seconds: 60.0
+  hysteresis_threshold: 0.08
+
+cognitive:
+  sensitivity: 1.0
+  focus_smoothing: 0.85
+
+audio:
+  sample_rate: 44100
+  block_size: 1024
+  master_volume: 0.35
+  assets_dir: assets/audio
