@@ -8,9 +8,9 @@ privacy:
   log_activity: false
 
 context:
-  dwell_seconds_min: 30
-  dwell_seconds_max: 60
-  default_dwell_seconds: 45
+  dwell_seconds_min: 8
+  dwell_seconds_max: 30
+  default_dwell_seconds: 15
 
 transition:
   deep_focus_crossfade_seconds: 12.0

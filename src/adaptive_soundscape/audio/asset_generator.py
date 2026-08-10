@@ -140,5 +140,7 @@ def generate_pads_from_sources(assets_dir: Path, *, overwrite: bool = False) -> 
 
 
 def ensure_assets(assets_dir: Path) -> list[Path]:
-    """Create any missing main or pad WAV files without overwriting existing ones."""
-    return generate_all(assets_dir, overwrite=False)
+    """Ensure each scenario has an album with at least one song."""
+    from adaptive_soundscape.audio.album import ensure_albums
+
+    return ensure_albums(assets_dir, prefer_mp3=True)

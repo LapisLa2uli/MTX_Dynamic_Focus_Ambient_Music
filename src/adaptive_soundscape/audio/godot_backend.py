@@ -12,6 +12,7 @@ import sys
 import time
 from pathlib import Path
 
+from adaptive_soundscape.audio.album import pick_random_track
 from adaptive_soundscape.audio.parameters import AudioParameters
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class GodotAudioBackend:
         self.port = port
         self.master_volume = master_volume
         self.startup_timeout = startup_timeout
-        self._exe = godot_executable or _find_godot_executable()
+        self._exe = _resolve_godot_executable(godot_executable, project_path)
         self._process: subprocess.Popen[str] | None = None
         self._socket: socket.socket | None = None
         self._recv_buffer = b""
@@ -68,7 +69,11 @@ class GodotAudioBackend:
                 "master_volume": self.master_volume,
             }
         )
-        profile_resp = self._send({"op": "set_profile", "profile_id": self._profile_id})
+        profile_payload: dict = {"op": "set_profile", "profile_id": self._profile_id}
+        track = pick_random_track(self.assets_dir, self._profile_id)
+        if track is not None:
+            profile_payload["track_path"] = str(track.resolve()).replace("\\", "/")
+        profile_resp = self._send(profile_payload)
         self._ensure_layers_loaded(profile_resp, "set_profile")
         start_resp = self._send({"op": "start"})
         self._ensure_layers_loaded(start_resp, "start")
@@ -101,7 +106,11 @@ class GodotAudioBackend:
     def set_profile(self, profile_id: str) -> None:
         self._profile_id = profile_id
         if self._socket is not None:
-            self._send({"op": "set_profile", "profile_id": profile_id})
+            payload: dict = {"op": "set_profile", "profile_id": profile_id}
+            track = pick_random_track(self.assets_dir, profile_id)
+            if track is not None:
+                payload["track_path"] = str(track.resolve()).replace("\\", "/")
+            self._send(payload)
 
     def set_parameters(self, params: AudioParameters) -> None:
         if self._socket is not None:
@@ -120,6 +129,9 @@ class GodotAudioBackend:
                 "profile_id": profile_id,
                 "duration": duration_seconds,
             }
+            track = pick_random_track(self.assets_dir, profile_id)
+            if track is not None:
+                payload["track_path"] = str(track.resolve()).replace("\\", "/")
             if params is not None:
                 payload.update(
                     {
@@ -277,6 +289,22 @@ class GodotAudioBackend:
                 break
             self._recv_buffer += chunk
         raise RuntimeError("No response from Godot audio sidecar")
+
+
+def _resolve_godot_executable(
+    godot_executable: str | None, project_path: Path
+) -> str | None:
+    if godot_executable:
+        candidate = Path(godot_executable)
+        if candidate.is_absolute():
+            return str(candidate) if candidate.exists() else godot_executable
+        bundle_root = project_path.parent
+        for base in (bundle_root, project_path):
+            resolved = (base / candidate).resolve()
+            if resolved.exists():
+                return str(resolved)
+        return str((bundle_root / candidate).resolve())
+    return _find_godot_executable()
 
 
 def _find_godot_executable() -> str | None:

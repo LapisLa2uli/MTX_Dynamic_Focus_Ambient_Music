@@ -26,6 +26,7 @@ var _target_params := {"brightness": 0.5, "energy": 0.4, "warmth": 0.55}
 var _current_layers: Array[AudioStreamPlayer] = []
 var _target_layers: Array[AudioStreamPlayer] = []
 var _layer_root: Node
+var _stream_cache: Dictionary = {}  # path -> AudioStream
 
 
 func _ready() -> void:
@@ -141,7 +142,8 @@ func _handle_command(line: String) -> void:
 			_send_json({"ok": true, "playing": _playing, "layer_count": 0})
 		"set_profile":
 			var profile_id := str(data.get("profile_id", _current_profile))
-			_set_profile_immediate(profile_id)
+			var track_path := str(data.get("track_path", ""))
+			_set_profile_immediate(profile_id, track_path)
 			_apply_layer_params(_current_layers, _params)
 			var profile_payload := _status_payload()
 			profile_payload["event"] = "profile_set"
@@ -153,8 +155,9 @@ func _handle_command(line: String) -> void:
 		"crossfade":
 			var profile_id := str(data.get("profile_id", _current_profile))
 			var duration := float(data.get("duration", 8.0))
+			var track_path := str(data.get("track_path", ""))
 			_target_params = _parse_params(data)
-			_begin_crossfade(profile_id, duration)
+			_begin_crossfade(profile_id, duration, track_path)
 			_send_json({"ok": true, "profile_id": profile_id, "duration": duration})
 		"quit":
 			_send_json({"ok": true})
@@ -196,28 +199,57 @@ func _stop_playback() -> void:
 	_crossfade_active = false
 
 
-func _set_profile_immediate(profile_id: String) -> void:
+func _set_profile_immediate(profile_id: String, track_path: String = "") -> void:
 	_clear_layers(_current_layers)
-	_current_layers = _build_layers(profile_id)
+	_current_layers = _build_layers(profile_id, track_path)
 	_current_profile = profile_id
 	_target_profile = profile_id
 
 
-func _begin_crossfade(profile_id: String, duration: float) -> void:
+func _promote_loud_crossfade_side() -> void:
+	## If a crossfade is mid-flight, keep the louder side as current before restarting.
+	if not _crossfade_active:
+		return
+	var t := clampf(_crossfade_elapsed / max(_crossfade_duration, 0.01), 0.0, 1.0)
+	if t >= 0.5:
+		_clear_layers(_current_layers)
+		_current_layers = _target_layers
+		_target_layers = []
+		_current_profile = _target_profile
+		_params = _target_params.duplicate()
+	else:
+		_clear_layers(_target_layers)
+	_crossfade_active = false
+	_apply_layer_params(_current_layers, _params, 1.0)
+
+
+func _begin_crossfade(profile_id: String, duration: float, track_path: String = "") -> void:
+	_promote_loud_crossfade_side()
 	_target_profile = profile_id
 	_crossfade_duration = max(duration, 0.01)
 	_crossfade_elapsed = 0.0
 	_crossfade_active = profile_id != _current_profile
 	if not _crossfade_active:
+		# Same scenario: still reshuffle to a (possibly new) album song.
+		_clear_layers(_current_layers)
+		_current_layers = _build_layers(profile_id, track_path)
+		for player in _current_layers:
+			if _playing and not player.playing:
+				player.play()
 		_params = _target_params.duplicate()
 		_apply_layer_params(_current_layers, _params)
 		return
 	_clear_layers(_target_layers)
-	_target_layers = _build_layers(profile_id)
+	_target_layers = _build_layers(profile_id, track_path)
 	for player in _target_layers:
 		player.volume_db = -80.0
 		if _playing and not player.playing:
 			player.play()
+
+
+func _equal_power_weights(t: float) -> Vector2:
+	t = clampf(t, 0.0, 1.0)
+	return Vector2(cos(t * PI * 0.5), sin(t * PI * 0.5))
 
 
 func _update_crossfade(delta: float) -> void:
@@ -225,10 +257,10 @@ func _update_crossfade(delta: float) -> void:
 		return
 	_crossfade_elapsed += delta
 	var t := clampf(_crossfade_elapsed / _crossfade_duration, 0.0, 1.0)
-	_apply_layer_params(_current_layers, _params, 1.0 - t)
-	_apply_layer_params(_target_layers, _target_params, t)
-	_set_layer_volumes(_current_layers, linear_to_db(1.0 - t) if t < 1.0 else -80.0)
-	_set_layer_volumes(_target_layers, linear_to_db(t) if t > 0.0 else -80.0)
+	var weights := _equal_power_weights(t)
+	# Param-aware gains only — do not overwrite with raw linear_to_db(t).
+	_apply_layer_params(_current_layers, _params, weights.x)
+	_apply_layer_params(_target_layers, _target_params, weights.y)
 	if t >= 1.0:
 		_clear_layers(_current_layers)
 		_current_layers = _target_layers
@@ -236,9 +268,16 @@ func _update_crossfade(delta: float) -> void:
 		_current_profile = _target_profile
 		_params = _target_params.duplicate()
 		_crossfade_active = false
+		_apply_layer_params(_current_layers, _params, 1.0)
 
 
-func _build_layers(profile_id: String) -> Array[AudioStreamPlayer]:
+func _build_layers(profile_id: String, track_path: String = "") -> Array[AudioStreamPlayer]:
+	# Prefer scenario album songs (random or host-selected track).
+	var album_players := _build_album_layers(profile_id, track_path)
+	if not album_players.is_empty():
+		return album_players
+
+	# Legacy four-stem layout (ambient/rhythm/harmonic/accent).
 	var players: Array[AudioStreamPlayer] = []
 	var base_gains := {
 		"ambient": 0.55,
@@ -250,10 +289,12 @@ func _build_layers(profile_id: String) -> Array[AudioStreamPlayer]:
 		var stream := _load_layer_stream(profile_id, layer_name)
 		if stream == null:
 			continue
+		var base_gain: float = float(base_gains.get(layer_name, 0.4))
 		var player := AudioStreamPlayer.new()
 		player.name = "%s_%s" % [profile_id, layer_name]
 		player.stream = stream
-		player.volume_db = linear_to_db(base_gains.get(layer_name, 0.4) * _master_volume)
+		player.set_meta("base_gain", base_gain)
+		player.volume_db = linear_to_db(base_gain * _master_volume)
 		player.autoplay = false
 		player.bus = "Master"
 		_configure_player_loop(player, stream)
@@ -262,6 +303,51 @@ func _build_layers(profile_id: String) -> Array[AudioStreamPlayer]:
 	if players.is_empty():
 		players = _build_fallback_layers(profile_id)
 	return players
+
+
+func _build_album_layers(profile_id: String, track_path: String = "") -> Array[AudioStreamPlayer]:
+	var players: Array[AudioStreamPlayer] = []
+	var path := track_path.replace("\\", "/")
+	if path == "" or not FileAccess.file_exists(path):
+		path = _pick_random_album_track(profile_id)
+	if path == "":
+		return players
+	var stream := _load_audio(path)
+	if stream == null:
+		return players
+	var player := AudioStreamPlayer.new()
+	player.name = "%s_%s" % [profile_id, path.get_file()]
+	player.stream = stream
+	player.set_meta("base_gain", 0.75)
+	player.set_meta("source_path", path)
+	player.volume_db = linear_to_db(0.75 * _master_volume)
+	player.autoplay = false
+	player.bus = "Master"
+	_configure_player_loop(player, stream)
+	_layer_root.add_child(player)
+	players.append(player)
+	return players
+
+
+func _pick_random_album_track(profile_id: String) -> String:
+	var folder := "%s/%s" % [_assets_path, profile_id]
+	var tracks: Array[String] = []
+	var dir := DirAccess.open(folder)
+	if dir == null:
+		return ""
+	dir.list_dir_begin()
+	var file_name := dir.get_next()
+	while file_name != "":
+		if not dir.current_is_dir():
+			var ext := file_name.get_extension().to_lower()
+			var stem := file_name.get_basename().to_lower()
+			if ext in AUDIO_EXTENSIONS and stem not in LAYER_NAMES and not stem.ends_with("_pad"):
+				tracks.append("%s/%s" % [folder, file_name])
+		file_name = dir.get_next()
+	dir.list_dir_end()
+	if tracks.is_empty():
+		return ""
+	return tracks[randi() % tracks.size()]
 
 
 func _build_fallback_layers(profile_id: String) -> Array[AudioStreamPlayer]:
@@ -282,10 +368,11 @@ func _build_fallback_layers(profile_id: String) -> Array[AudioStreamPlayer]:
 		var player := AudioStreamPlayer.new()
 		player.name = "%s_%s" % [profile_id, path.get_file()]
 		player.stream = stream
+		player.set_meta("base_gain", gain)
+		player.set_meta("source_path", path)
 		player.volume_db = linear_to_db(gain * _master_volume)
 		player.autoplay = false
 		player.bus = "Master"
-		player.set_meta("source_path", path)
 		_configure_player_loop(player, stream)
 		_layer_root.add_child(player)
 		players.append(player)
@@ -323,6 +410,9 @@ func _resolve_audio_path(stem: String) -> String:
 
 
 func _load_audio(path: String) -> AudioStream:
+	if _stream_cache.has(path):
+		return _stream_cache[path]
+	var stream: AudioStream = null
 	var ext := path.get_extension().to_lower()
 	match ext:
 		"wav":
@@ -331,7 +421,7 @@ func _load_audio(path: String) -> AudioStream:
 				push_warning("Failed to load WAV: %s" % path)
 				return null
 			wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
-			return wav
+			stream = wav
 		"mp3":
 			var file := FileAccess.open(path, FileAccess.READ)
 			if file == null:
@@ -340,15 +430,18 @@ func _load_audio(path: String) -> AudioStream:
 			var mp3 := AudioStreamMP3.new()
 			mp3.data = file.get_buffer(file.get_length())
 			mp3.loop = true
-			return mp3
+			stream = mp3
 		"ogg":
 			var ogg := AudioStreamOggVorbis.load_from_file(path)
 			if ogg == null:
 				push_warning("Failed to load OGG: %s" % path)
-			return ogg
+				return null
+			stream = ogg
 		_:
 			push_warning("Unsupported audio extension: %s" % path)
 			return null
+	_stream_cache[path] = stream
+	return stream
 
 
 func _configure_player_loop(player: AudioStreamPlayer, stream: AudioStream) -> void:
@@ -363,17 +456,16 @@ func _apply_layer_params(players: Array[AudioStreamPlayer], params: Dictionary, 
 	var brightness: float = params.get("brightness", 0.5)
 	var energy: float = params.get("energy", 0.4)
 	var warmth: float = params.get("warmth", 0.55)
-	var gain := (0.5 + (energy - 0.5) * 0.5) * (0.85 + brightness * 0.3) * (0.9 + warmth * 0.15)
-	gain = clampf(gain, 0.05, 1.0) * _master_volume * mix
-	var volume_db := linear_to_db(max(gain, 0.001))
+	var shape := (0.5 + (energy - 0.5) * 0.5) * (0.85 + brightness * 0.3) * (0.9 + warmth * 0.15)
+	shape = clampf(shape, 0.05, 1.0)
 	for player in players:
-		if player.playing or mix > 0.01:
-			player.volume_db = volume_db
-
-
-func _set_layer_volumes(players: Array[AudioStreamPlayer], db: float) -> void:
-	for player in players:
-		player.volume_db = db
+		if not (player.playing or mix > 0.01):
+			continue
+		var base_gain := 1.0
+		if player.has_meta("base_gain"):
+			base_gain = float(player.get_meta("base_gain"))
+		var gain := max(base_gain * shape * _master_volume * mix, 0.001)
+		player.volume_db = linear_to_db(gain)
 
 
 func _clear_layers(players: Array[AudioStreamPlayer]) -> void:

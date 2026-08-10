@@ -20,9 +20,19 @@
 \contentsline {subsection}{\numberline {2.2}题2：场景化产品提案}{10}{subsection.2.2}%
 \contentsline {subsubsection}{\numberline {2.2.1}产品定位与设计哲学}{10}{subsubsection.2.2.1}%
 \contentsline {subsubsection}{\numberline {2.2.2}系统架构与方法论}{11}{subsubsection.2.2.2}%
-\contentsline {subsubsection}{\numberline {2.2.3}音频后端与 Godot API 集成}{12}{subsubsection.2.2.3}%
-\contentsline {subsubsection}{\numberline {2.2.4}隐私与本地部署}{13}{subsubsection.2.2.4}%
-\contentsline {subsubsection}{\numberline {2.2.5}用户界面与交互}{14}{subsubsection.2.2.5}%
-\contentsline {subsubsection}{\numberline {2.2.6}有效性分析}{14}{subsubsection.2.2.6}%
-\contentsline {subsubsection}{\numberline {2.2.7}总结}{15}{subsubsection.2.2.7}%
-\contentsline {section}{\numberline {A}ChatGPT完整对话记录}{16}{appendix.A}%
+\contentsline {paragraph}{情境分类所依赖的检测事件。}{11}{Item.5}%
+\contentsline {paragraph}{浏览器与分心判定的特殊规则。}{13}{table.caption.3}%
+\contentsline {paragraph}{驻留滤波与手动覆盖。}{13}{table.caption.3}%
+\contentsline {subsubsection}{\numberline {2.2.3}工程结构与运行流程}{13}{subsubsection.2.2.3}%
+\contentsline {paragraph}{仓库目录结构。}{13}{subsubsection.2.2.3}%
+\contentsline {paragraph}{模块依赖关系。}{14}{table.caption.4}%
+\contentsline {paragraph}{事件总线与领域事件。}{15}{figure.caption.5}%
+\contentsline {paragraph}{1\,Hz 主循环。}{15}{figure.caption.5}%
+\contentsline {paragraph}{Start Audio 与后端选择。}{16}{figure.caption.6}%
+\contentsline {paragraph}{情境—声景映射。}{16}{figure.caption.6}%
+\contentsline {subsubsection}{\numberline {2.2.4}音频后端与 Godot API 集成}{18}{subsubsection.2.2.4}%
+\contentsline {subsubsection}{\numberline {2.2.5}隐私与本地部署}{19}{subsubsection.2.2.5}%
+\contentsline {subsubsection}{\numberline {2.2.6}用户界面与交互}{19}{subsubsection.2.2.6}%
+\contentsline {subsubsection}{\numberline {2.2.7}有效性分析}{19}{subsubsection.2.2.7}%
+\contentsline {subsubsection}{\numberline {2.2.8}总结}{20}{subsubsection.2.2.8}%
+\contentsline {section}{\numberline {A}ChatGPT完整对话记录}{21}{appendix.A}%

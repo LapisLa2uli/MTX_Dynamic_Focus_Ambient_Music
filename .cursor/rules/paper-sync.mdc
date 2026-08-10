@@ -17,7 +17,7 @@ When you change **implementation** in this repo, also update [`paper/main.tex`](
 | Code change | Paper section |
 |-------------|---------------|
 | Audio backend (Godot API, commands, fallback, placeholder default) | §2.2 音频后端与 Godot API 集成, 表 `tab:godot-api` |
-| Five-subsystem architecture | §2.2 系统架构与方法论 |
+| Five-subsystem architecture | §2.2 系统架构与方法论、工程结构与运行流程、图 `fig:acs-arch`/`fig:acs-flow` |
 | Focus formula / symbols | §2.2 表 `tab:acs-vars`, 式 \eqref{eq:focus-raw}, \eqref{eq:focus-ema} |
 | Transition timings ($T_d$, $T_c$, $\tau_f$, $\tau_r$, $\varepsilon$) | §2.2 + 有效性分析 |
 | Config keys in `config/default.yaml` | §2.2 配置项（`backend`, `prefer_mp3`, `fallback_to_placeholder` 等） |

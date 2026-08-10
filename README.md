@@ -139,57 +139,44 @@ If Godot fails to start, leave `fallback_to_placeholder: true` and the app will 
 
 ## Audio assets
 
-Place sound files in `assets/audio/`. Supported formats: **`.mp3`**, **`.wav`** (and `.ogg` in Godot only).
+Each work scenario has a **song album**. When that scenario is active, the app picks a track from the album **at random**. Supported formats: **`.mp3`**, **`.wav`** (and `.ogg` in Godot only).
 
-### Profile file names
+Use **Manage Albums** in the app to upload or delete songs, or place files manually:
 
-Each work context maps to a profile ID:
+| Context | Album folder |
+|---------|----------------|
+| Programming | `assets/audio/programming/` |
+| Team / workflow | `assets/audio/team_workflow/` |
+| Reading / writing | `assets/audio/reading_writing/` |
+| Scientific | `assets/audio/scientific/` |
+| Creative / design | `assets/audio/creative_design/` |
+| Distraction recovery | `assets/audio/distraction/` |
+| Unknown / neutral | `assets/audio/unknown/` |
 
-| Context | File stem |
-|---------|-----------|
-| Programming | `programming` |
-| Team / workflow | `team_workflow` |
-| Reading / writing | `reading_writing` |
-| Scientific | `scientific` |
-| Creative / design | `creative_design` |
-| Distraction recovery | `distraction` |
-| Unknown / neutral | `unknown` |
-
-**Flat layout (default, recommended)**
-
-```
-assets/audio/
-  programming.mp3          # main loop
-  programming_pad.wav      # softer underlayer (optional)
-  reading_writing.mp3
-  ...
-```
-
-With `prefer_mp3: true` (default), the app plays your **MP3** files instead of auto-generated synthetic WAV placeholders.
-
-**Layered layout (Godot, optional)**
+**Album layout (default)**
 
 ```
 assets/audio/
   programming/
-    ambient.wav
-    rhythm.wav
-    harmonic.wav
-    accent.wav
+    programming_01.mp3
+    deep_focus_alt.wav
+  reading_writing/
+    quiet_study_01.mp3
+  ...
 ```
 
-See [`godot/README.md`](godot/README.md) for the Godot sidecar API and stem details.
-
-### Generate placeholder tones (optional)
-
-If you have no music files yet, the app can create simple synthetic loops:
+On first run, any legacy flat files (`programming.mp3`, etc.) are copied into the matching album as a single starter track. You can also run:
 
 ```powershell
 conda activate MTX
-python scripts/generate_audio_assets.py       # mains + pads (skip existing)
-python scripts/generate_pad_assets.py           # pads only
-python scripts/generate_pad_assets.py --force   # regenerate all pads
+python scripts/migrate_albums.py
 ```
+
+**Legacy layered layout (Godot, optional)** — only if a folder has no album songs and uses stem names `ambient` / `rhythm` / `harmonic` / `accent`. See [`godot/README.md`](godot/README.md).
+
+### Generate placeholder tones (optional)
+
+If an album is empty, the app can synthesize a simple loop into that folder on startup.
 
 ---
 
@@ -206,6 +193,41 @@ Or, after install:
 ```powershell
 adaptive-soundscape
 ```
+
+### One-click demo ZIP (portable package)
+
+Yes — you can ship the project **together with the Python environment** in a single zip so recipients do not need Conda or `pip install`.
+
+**Build the zip** (on a Windows machine with Conda installed):
+
+```powershell
+cd "D:\stuff\Adaptive Focus Music System"
+powershell -ExecutionPolicy Bypass -File scripts\build_demo_package.ps1
+```
+
+The script creates a fresh `acs-demo-pack` conda env from `requirements.txt`, packs it with [conda-pack](https://conda.github.io/conda-pack/), bundles **Godot 4** for layered audio, and zips everything. Output: **`dist/AdaptiveSoundscape-Demo-win64.zip`** (~540 MB with Godot + audio assets).
+
+**Before building:** place a Godot 4 Standard Windows exe in the project root (e.g. `Godot_v4.6.3-stable_win64.exe` from [godotengine.org/download](https://godotengine.org/download)). The build script copies it into the zip as `Godot.exe`. Or pass an explicit path: `-GodotExe "D:\path\to\Godot.exe"`.
+
+| Included | Notes |
+|----------|-------|
+| `runtime/` | Portable Python env (`conda-pack` of `acs-demo-pack`) |
+| `Godot.exe` | Godot 4 sidecar — four-layer adaptive audio (final product) |
+| `src/`, `config/`, `assets/`, `godot/` | Application code and audio assets |
+| `run_demo.bat` | **Single command to launch the demo** |
+
+**Run the demo** (recipient, no install step):
+
+1. Unzip anywhere on Windows 10/11.
+2. Double-click **`run_demo.bat`** (or run it from a terminal).
+
+The first launch runs `conda-unpack` once to fix paths. The demo uses the **Godot audio backend** by default (same layered mixing as a full install). If Godot fails to start, the app falls back to the built-in placeholder mixer.
+
+**Limitations**
+
+- Built for **Windows x64 only** (matches pywin32 / this project’s target platform).
+- The zip must be built on a machine with Conda and a local Godot exe; rebuild after dependency changes.
+- Antivirus software may flag packed Python runtimes; signing or whitelisting may be needed in some environments.
 
 ---
 

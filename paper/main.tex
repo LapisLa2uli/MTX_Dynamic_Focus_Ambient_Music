@@ -295,18 +295,240 @@ Adaptive Cognitive Soundscape面向程序员、研究者、设计师、阅读写
 
 \begin{enumerate}
 \item \textbf{用户活动监测器（User Activity Monitor）}：在Windows平台上通过OS级钩子采集前台进程名、窗口标题（可选）、键盘与鼠标\textbf{事件计数}（不含按键内容）、窗口切换频率、空闲时长与任务持续时长。输入速率$i$、切换速率$\sigma$、空闲比例$\delta$与CPU负载$\kappa$被归一化至$[0,1]$，形成行为特征向量。
-\item \textbf{情境分类器（Context Classifier）}：采用\textbf{基于规则的启发式分类}，将前台应用与标题关键词映射至六类工作情境——编程/工程、团队/截止期协作、阅读/写作、科学/数学工作、创意设计、分心状态——并输出置信度$\gamma$。新情境须持续\textbf{驻留$T_d=45$\,s}（可配置）方被采纳，以抑制标签抖动。
+\item \textbf{情境分类器（Context Classifier）}：采用\textbf{基于规则的启发式分类}，将\textbf{前台进程名}与\textbf{窗口标题}（均为可选采集的元数据，不含按键内容）映射至六类工作情境——编程/工程、团队/截止期协作、阅读/写作、科学/数学工作、创意设计、分心状态——并输出置信度$\gamma$。分类器\textbf{不}使用键鼠计数、CPU 或空闲时长；后者仅用于认知估计。对未命中内置词典的“杂项/unknown”窗口，轻量\texttt{ContextInferer}基于种子词表与词元重叠给出候选情境；系统在屏幕右下角弹出确认条，用户可确认或纠正并写入本地\texttt{user\_context\_mappings.json}。用户亦可在界面中按类别配置进程名与标题关键词。新情境须持续\textbf{驻留$T_d$}（默认 8--30\,s，随$\gamma$自适应，可配置）方被采纳，并对短暂 \texttt{unknown} 标签设置宽限，以抑制抖动。
 \item \textbf{认知状态估计器（Cognitive State Estimator）}：避免二元“专注/分心”逻辑，输出连续\textbf{专注分数} $F\in[0,1]$及六种离散状态：深度专注、轻度分心、过度刺激、疲劳、平静生产力、心流。估计融合输入节律一致性、应用切换熵、空闲模式、任务持续性及情境先验，并经指数移动平均（平滑系数$\alpha=0.85$）滤波。
-\item \textbf{自适应音乐引擎（Adaptive Music Engine）}：实现为可插拔的\texttt{AudioBackend}接口，包含两种后端：（A）\textbf{占位混音器}（\texttt{PlaceholderMixer}，默认）——基于NumPy与\texttt{sounddevice}，在Python进程内循环播放各情境的\textbf{主轨+pad层}（MP3/WAV），并按亮度、能量、温暖度做增益整形与交叉淡化；（B）\textbf{Godot 4侧载}（\texttt{GodotAudioBackend}）——Python主进程通过本地TCP JSON API控制Godot中的多层\texttt{AudioStreamPlayer}。理想资产结构为每个情境目录下的四层同步stem（\texttt{ambient}、\texttt{rhythm}、\texttt{harmonic}、\texttt{accent}）；若仅有扁平文件，则回退为\texttt{\{profile\_id\}.mp3/wav}主轨与\texttt{\{profile\_id\}\_pad.wav}垫层。四层stem的声学角色为：
+\item \textbf{自适应音乐引擎（Adaptive Music Engine）}：实现为可插拔的\texttt{AudioBackend}接口，包含两种后端：（A）\textbf{占位混音器}（\texttt{PlaceholderMixer}，默认）——基于NumPy与\texttt{sounddevice}，在Python进程内从各情境\textbf{专辑}中随机抽取一首歌曲循环播放（MP3/WAV），并按亮度、能量、温暖度做增益整形与\textbf{等功率（equal-power）交叉淡化}；解码与缓冲安装在音频回调锁之外完成，启动后后台预热其余专辑，避免切换时 underrun 静音间隙；（B）\textbf{Godot 4侧载}（\texttt{GodotAudioBackend}）——Python主进程通过本地TCP JSON API控制Godot中的\texttt{AudioStreamPlayer}。默认资产结构为每个情境目录下的歌曲专辑；若目录内仍为四层同步stem（\texttt{ambient}、\texttt{rhythm}、\texttt{harmonic}、\texttt{accent}）则启用分层混音。四层stem的声学角色为：
 \begin{itemize}
 \item \textbf{基础氛围层}：持续音垫、低频嗡鸣与空间纹理；
 \item \textbf{节奏层}：约70\,BPM四分音符脉冲、重度闷化打击、宽间隔负空间；
 \item \textbf{和声层}：缓慢和弦进行、轻微未解决和声；
 \item \textbf{点缀层}：稀疏机械质感与低音量事件。
 \end{itemize}
-运行时通过层音量、滤波器截止频率、密度与亮度/能量/温暖度三组宏观参数进行\textbf{混合、交叉淡化、增删层与渐进滤波}，而非实时生成全新乐曲。
-\item \textbf{过渡控制器（Transition Controller）}：情境切换时采用$\tau_f=8$--12\,s线性交叉淡化；分心恢复时缩短至$\tau_r\approx4.5$\,s；深度专注/心流状态下\textbf{冻结参数变化}，除非情境本身改变。系统设置冷却期$T_c=60$\,s与专注分数迟滞带$\varepsilon=0.08$，防止声景频繁振荡。
+运行时通过层音量、滤波器截止频率、密度与亮度/能量/温暖度三组宏观参数进行\textbf{混合、等功率交叉淡化、增删层与渐进滤波}，而非实时生成全新乐曲。
+\item \textbf{过渡控制器（Transition Controller）}：情境切换时采用$\tau_f=8$--12\,s等功率交叉淡化；分心恢复时缩短至$\tau_r\approx4.5$\,s；深度专注/心流状态下\textbf{冻结参数变化}，除非情境本身改变。系统设置冷却期$T_c=60$\,s与专注分数迟滞带$\varepsilon=0.08$，防止声景频繁振荡。
 \end{enumerate}
+
+\paragraph{情境分类所依赖的检测事件。}系统将“任务类别”与“认知状态”解耦：\textbf{工作情境}（\texttt{WorkContext}）仅由前台窗口元数据推断；\textbf{专注分数}与六种 \texttt{FocusState} 则由行为节律信号估计。每 1\,s 主循环中，\texttt{ActivityMonitor.poll()} 生成 \texttt{ActivitySnapshot}，其中各字段的用途如表~\ref{tab:activity-snapshot} 所示。
+
+\begin{table}[H]
+\centering
+\caption{每周期采集的活动事件及其用途}
+\label{tab:activity-snapshot}
+\small
+\begin{tabular}{@{}p{3.0cm}p{4.0cm}p{5.8cm}@{}}
+\toprule
+\textbf{检测事件} & \textbf{采集方式} & \textbf{用途} \\
+\midrule
+前台进程名 & \texttt{GetForegroundWindow} + \texttt{psutil.Process.name()} & \textbf{情境分类}：与规则库中的 IDE/通讯/浏览器等进程名匹配 \\
+窗口标题 & \texttt{GetWindowText}（可选关闭） & \textbf{情境分类}：关键词、源码扩展名（如 \texttt{.py}）、分心/工作类网页标题 \\
+窗口切换 & 相邻两次快照的进程名或标题变化计数 & \textbf{认知估计}：归一化为切换速率 $\sigma$ \\
+键盘按键 & \texttt{pynput} \texttt{on\_press} 计数 & \textbf{认知估计}：计入输入速率 $i$；\textbf{不记录}按键内容 \\
+鼠标点击 & \texttt{pynput} \texttt{on\_click} 计数 & \textbf{认知估计}：计入 $i$ \\
+滚轮滚动 & \texttt{pynput} \texttt{on\_scroll} 计数 & \textbf{认知估计}：计入 $i$ \\
+空闲时长 & 距上次输入的单调时钟差 & \textbf{认知估计}：归一化为空闲比 $\delta$ \\
+CPU 占用率 & \texttt{psutil.cpu\_percent} & \textbf{认知估计}：归一化为负载 $\kappa$ \\
+时间戳 & UTC 时间 & 日志与事件排序（默认不写盘） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\texttt{classify\_snapshot()} 对六类情境及 \texttt{distraction} 并行打分，规则定义于 \texttt{context/rules.py}。每条规则包含\textbf{进程名提示}、\textbf{标题关键词}与类别权重；编程类另检测标题中的源码扩展名（如 \texttt{.py}、\texttt{.ts}、\texttt{.java} 等）。打分逻辑为：进程匹配贡献约 $0.78\times$权重，标题关键词约 $0.35\times$权重，源码扩展名（仅编程）约 $0.45\times$权重，总分截断至 $[0,1]$ 作为该情境得分；取最高分者为候选标签，其得分即 $\gamma$。表~\ref{tab:context-detection} 概括各类别所依赖的主要检测线索；完整进程/关键词列表以代码为准。
+
+\begin{table}[H]
+\centering
+\caption{工作情境分类所检测的事件线索（规则摘要）}
+\label{tab:context-detection}
+\footnotesize
+\begin{tabular}{@{}p{2.4cm}p{4.6cm}p{5.6cm}@{}}
+\toprule
+\textbf{WorkContext} & \textbf{进程名线索（示例）} & \textbf{窗口标题线索（示例）} \\
+\midrule
+\texttt{programming} &
+\texttt{code}, \texttt{cursor}, \texttt{pycharm64}, \texttt{idea64}, \texttt{webstorm64}, \texttt{devenv}, \texttt{windowsterminal}, \texttt{pwsh}, \texttt{wsl} 等 &
+\texttt{pycharm}, \texttt{jetbrains}, \texttt{debug}, \texttt{pull request}；标题含 \texttt{.py}/\texttt{.js}/\texttt{.ts} 等扩展名 \\
+\texttt{team\_workflow} &
+\texttt{teams}, \texttt{slack}, \texttt{zoom}, \texttt{outlook}, \texttt{discord}, \texttt{webex} &
+\texttt{microsoft teams}, \texttt{slack |}, \texttt{zoom meeting}, \texttt{calendar}, \texttt{mail -} \\
+\texttt{reading\_writing} &
+\texttt{winword}, \texttt{notion}, \texttt{obsidian}, \texttt{notepad} &
+\texttt{microsoft word}, \texttt{document}, \texttt{reading}, \texttt{manuscript} \\
+\texttt{scientific} &
+\texttt{matlab}, \texttt{jupyter}, \texttt{spyder}, \texttt{wolfram}, \texttt{stata} &
+\texttt{jupyter}, \texttt{notebook}, \texttt{research}, \texttt{arxiv}, \texttt{dataset} \\
+\texttt{creative\_design} &
+\texttt{figma}, \texttt{photoshop}, \texttt{blender}, \texttt{illustrator}, \texttt{premiere} &
+\texttt{figma}, \texttt{design}, \texttt{blender}, \texttt{after effects} \\
+\texttt{distraction} &
+（无单独进程规则） &
+\texttt{youtube}, \texttt{reddit}, \texttt{tiktok}, \texttt{netflix}, \texttt{game}, \texttt{spotify} 等；\textbf{须}在标题中出现 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{浏览器与分心判定的特殊规则。}与早期“浏览器即分心”的简化假设不同，当前实现\textbf{不因}进程为 Chrome/Edge/Firefox 而直接判为 \texttt{distraction}。分心类别要求窗口标题中出现表~\ref{tab:context-detection} 所列娱乐/社交类关键词；若标题同时匹配\textbf{工作类浏览器关键词}（如 \texttt{github}、\texttt{stackoverflow}、\texttt{documentation}、\texttt{jira}、\texttt{localhost} 等），则\textbf{抑制}分心得分。当浏览器标签页仅含分心关键词且得分略高于其他生产性情境时，分类器仍优先保留生产性标签（得分差 $\le 0.12$ 时不切换至 \texttt{distraction}）。若进程名与标题均未命中任何规则，则输出 \texttt{unknown}（$\gamma=0$）。
+
+\paragraph{驻留滤波与手动覆盖。}\texttt{ContextPersistence} 在候选情境连续稳定后才更新 \texttt{WorkContext}：当 $\gamma\ge 0.75$ 时 $T_d=T_{d,\min}=8$\,s；当 $\gamma\ge 0.5$ 时 $T_d=15$\,s（默认）；否则 $T_{d,\max}=30$\,s。置信度 $\gamma<0.25$ 的样本视为 \texttt{unknown}；若当前已处于某生产性情境，连续 4 个周期的 \texttt{unknown} 才允许清空标签，以避免 Alt-Tab 造成的瞬时误判。用户启用 UI \textbf{手动覆盖}时，跳过上述规则，直接采用所选情境且 $\gamma=1$。
+
+\subsubsection{工程结构与运行流程}
+
+Phase~1 MVP 以\textbf{单进程 Python 桌面应用}为核心：PyQt6 负责界面与定时调度，五个功能子系统通过内存中的 \texttt{EventBus} 解耦协作；音频渲染默认在进程内完成（\texttt{PlaceholderMixer}），也可选启动独立的 Godot 侧载进程。全部逻辑在本地运行，配置文件与声景资产与源码分离存放。
+
+\paragraph{仓库目录结构。}表~\ref{tab:repo-structure} 概括主要目录及其职责；实现代码集中于 \texttt{src/adaptive\_soundscape/}，按子系统分包，便于替换规则、估计器或音频后端而不影响编排层。
+
+\begin{table}[H]
+\centering
+\caption{Adaptive Cognitive Soundscape 工程目录结构（Phase 1）}
+\label{tab:repo-structure}
+\small
+\begin{tabular}{@{}p{4.2cm}p{9.3cm}@{}}
+\toprule
+\textbf{路径} & \textbf{职责} \\
+\midrule
+\texttt{src/adaptive\_soundscape/app.py} & 应用编排器 \texttt{AdaptiveSoundscapeApp}：初始化子系统、1\,Hz 主循环、UI 与音频联动 \\
+\texttt{activity/} & 活动监测：\texttt{WindowTracker}（pywin32）、\texttt{InputTracker}（pynput 计数）、\texttt{ActivityMonitor} 聚合快照与指标 \\
+\texttt{context/} & 情境分类：\texttt{rules.py} 启发式规则、\texttt{classifier.py}/\texttt{inferer.py} 打分与未知窗推断、\texttt{user\_mappings.py} 用户词典、\texttt{persistence.py} 驻留滤波 \\
+\texttt{cognitive/} & 认知估计：\texttt{FocusEstimator} 由行为信号计算 $r$、$F$ 及六种 \texttt{FocusState} \\
+\texttt{transition/} & 过渡控制：\texttt{TransitionController} 输出 \texttt{TransitionDecision}（目标 profile、交叉淡化时长、是否过渡） \\
+\texttt{audio/} & 音频引擎：\texttt{AudioBackend} 协议、\texttt{PlaceholderMixer}、\texttt{GodotAudioBackend}、资产加载与 profile 映射 \\
+\texttt{ui/} & PyQt6 主窗口：情境/专注展示、手动覆盖、隐私开关、Start Audio \\
+\texttt{core/} & 公共基础设施：\texttt{events.py} 领域事件、\texttt{EventBus}、\texttt{config.py} 读取 \texttt{default.yaml} \\
+\texttt{config/default.yaml} & 驻留时间（$T_{d,\min}$/默认/$T_{d,\max}$）、交叉淡化、灵敏度、音频后端、隐私默认值 \\
+\texttt{assets/audio/} & 各情境专辑目录（\texttt{\{profile\}/*.mp3|wav}），运行时随机抽曲；可选 Godot 四层 stem \\
+\texttt{godot/} & Godot 4 侧载工程：\texttt{soundscape\_manager.gd} 监听 TCP JSON 并混音 \\
+\texttt{scripts/} & 资产生成、依赖校验等辅助脚本 \\
+\texttt{paper/} & 本报告 LaTeX 源文件 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{模块依赖关系。}编排器在启动时依次构造 \texttt{EventBus}、\texttt{ActivityMonitor}、\texttt{ContextPersistence}、\texttt{FocusEstimator}、\texttt{TransitionController}，并通过 \texttt{create\_audio\_backend()} 工厂按配置实例化 \texttt{PlaceholderMixer} 或 \texttt{GodotAudioBackend}。UI 控件通过 Qt 信号槽回调编排器（如手动覆盖、灵敏度、隐私选项、Start Audio），而\textbf{周期性闭环}由 \texttt{QTimer} 以 \texttt{poll\_interval\_ms=1000} 驱动，与五个子系统的主数据路径一致，如图~\ref{fig:acs-arch} 所示。
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.38cm and 0.55cm,
+    module/.style={
+        draw=AquaBlue,
+        fill=AquaLight,
+        rounded corners=4pt,
+        align=center,
+        font=\footnotesize,
+        minimum height=0.72cm,
+        inner sep=3pt
+    },
+    store/.style={
+        module,
+        fill=AquaGray,
+        dashed
+    },
+    flowarr/.style={-{Stealth[length=2mm]}, thick, AquaBlue},
+    lbl/.style={font=\scriptsize, text=AquaTeal}
+]
+    \node[module, minimum width=2.1cm] (os) {Windows OS\\进程/窗口/输入};
+    \node[module, right=of os, minimum width=2.0cm] (mon) {Activity\\Monitor};
+    \node[module, right=of mon, minimum width=1.9cm] (cls) {Context\\Classifier};
+    \node[module, right=of cls, minimum width=1.8cm] (cog) {Focus\\Estimator};
+    \node[module, right=of cog, minimum width=1.9cm] (tr) {Transition\\Controller};
+    \node[module, below=0.55cm of mon, minimum width=2.0cm] (bus) {EventBus\\（进程内）};
+    \node[module, below=0.55cm of tr, minimum width=2.2cm] (aud) {AudioBackend\\Placeholder / Godot};
+    \node[module, below=0.55cm of cls, minimum width=2.0cm] (ui) {PyQt6 UI};
+    \node[store, right=0.35cm of aud, minimum width=1.7cm] (assets) {assets/audio\\MP3/WAV/stem};
+    \node[store, below=0.45cm of aud, minimum width=2.0cm] (cfg) {config/\\default.yaml};
+
+    \draw[flowarr] (os) -- node[above, lbl] {快照} (mon);
+    \draw[flowarr] (mon) -- node[above, lbl] {分类} (cls);
+    \draw[flowarr] (cls) -- node[above, lbl] {情境} (cog);
+    \draw[flowarr] (cog) -- node[above, lbl] {$F$,状态} (tr);
+    \draw[flowarr] (tr) -- node[right, lbl] {crossfade} (aud);
+    \draw[flowarr] (assets) -- (aud);
+    \draw[flowarr] (cfg) -- (mon);
+    \draw[flowarr] (cfg) -- (aud);
+    \draw[flowarr, dashed] (mon) -- (bus);
+    \draw[flowarr, dashed] (cls) -- (bus);
+    \draw[flowarr, dashed] (cog) -- (bus);
+    \draw[flowarr, dashed] (tr) -- (bus);
+    \draw[flowarr, dashed] (ui) -- (bus);
+    \draw[flowarr, dashed] (ui.north) -- ++(0,0.35) -| (cls.south);
+    \draw[flowarr, dashed] (ui.east) -- ++(0.25,0) |- (tr.south);
+\end{tikzpicture}%
+}
+\caption{系统模块依赖与数据流（实线为主路径，虚线为事件总线与 UI 干预）}
+\label{fig:acs-arch}
+\end{figure}
+
+\paragraph{事件总线与领域事件。}\texttt{EventBus} 提供轻量级 typed pub/sub：主循环与 UI 发布 \texttt{ActivitySnapshot}、\texttt{ContextChanged}、\texttt{FocusUpdated}、\texttt{AudioParametersUpdated} 等不可变 dataclass 事件，供日志、未来扩展模块或测试钩子订阅。Phase~1 中 UI 主要直接读取编排器状态刷新仪表盘，事件总线保证子系统边界清晰且便于单元测试注入。
+
+\paragraph{1\,Hz 主循环。}每次 \texttt{\_tick()} 执行下列顺序（与图~\ref{fig:acs-flow} 一致）：
+\begin{enumerate}[label=\arabic*.]
+\item \textbf{采样}：\texttt{ActivityMonitor.poll()} 读取前台窗口标题、进程名、键鼠\textbf{计数}、CPU 与空闲时长，生成 \texttt{ActivitySnapshot} 并发布至总线。
+\item \textbf{情境推断}：\texttt{classify\_snapshot()} 仅依据前台\textbf{进程名}与\textbf{窗口标题}对六类工作情境及 \texttt{distraction} 打分（见表~\ref{tab:activity-snapshot}--\ref{tab:context-detection}）；\texttt{ContextPersistence} 要求新标签持续 $T_d\in[8,30]$\,s（随 $\gamma$ 自适应）才切换，并对短暂 \texttt{unknown} 设宽限。用户启用\textbf{手动覆盖}时，直接采用 UI 所选情境且置信度为 1。
+\item \textbf{认知估计}：由输入速率 $i$、切换速率 $\sigma$、空闲比 $\delta$、CPU 负载 $\kappa$ 及情境先验构成 \texttt{FocusSignals}，代入式~\eqref{eq:focus-raw}--\eqref{eq:focus-ema} 得到 $F$ 与离散 \texttt{FocusState}。
+\item \textbf{过渡决策}：\texttt{TransitionController.decide()} 结合情境变化、专注状态变化、迟滞带 $\varepsilon$ 与冷却期 $T_c$ 判断是否 \texttt{should\_transition}，并映射至 \texttt{profile\_id} 及亮度/能量/温暖度三元组。
+\item \textbf{音频执行}：若用户已点击 Start Audio 且需要过渡，调用 \texttt{audio.crossfade\_to()}；占位混音器在锁外解码后于 \texttt{sounddevice} 回调中做等功率双 profile 混合，Godot 后端则经 TCP 发送 \texttt{crossfade} 指令。
+\item \textbf{界面刷新}：更新情境卡片、专注条与当前声景名称；若开启隐私日志则本地记录元数据（默认关闭）。
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=0.36cm,
+    flowbox/.style={
+        draw=AquaBlue,
+        fill=AquaLight,
+        rounded corners=4pt,
+        align=center,
+        font=\footnotesize,
+        text width=0.88\linewidth,
+        minimum height=0.72cm,
+        inner sep=4pt
+    },
+    flowarr/.style={-{Stealth[length=2mm]}, thick, AquaBlue}
+]
+    \node[flowbox] (start) {1.\ 用户启动 \texttt{python -m adaptive\_soundscape}；\\ \texttt{QTimer} 每 1\,s 调用 \texttt{AdaptiveSoundscapeApp.\_tick()}};
+    \node[flowbox, below=of start] (poll) {2.\ \texttt{ActivityMonitor.poll()}：采集窗口标题、进程名、键鼠\textbf{计数}、CPU、空闲时长\\ $\rightarrow$ 发布 \texttt{ActivitySnapshot}};
+    \node[flowbox, below=of poll] (ctx) {3.\ \texttt{classify\_snapshot()}：进程名+标题规则打分；\texttt{ContextPersistence} 驻留 $T_d\in[8,30]$\,s\\ $\rightarrow$ \texttt{WorkContext}（可选手动覆盖）};
+    \node[flowbox, below=of ctx] (focus) {4.\ \texttt{FocusEstimator}：由 $i,\sigma,\delta,\kappa$ 与情境先验计算 $r$、$F$\\ $\rightarrow$ 六种 \texttt{FocusState}，发布 \texttt{FocusUpdated}};
+    \node[flowbox, below=of focus] (decide) {5.\ \texttt{TransitionController.decide()}：结合冷却 $T_c$、迟滞 $\varepsilon$\\ $\rightarrow$ \texttt{profile\_id}、亮度/能量/温暖度、是否 \texttt{should\_transition}};
+    \node[flowbox, below=of decide] (audio) {6.\ 若用户已 Start Audio 且 \texttt{should\_transition}：\\ \texttt{audio.crossfade\_to()} $\rightarrow$ \texttt{PlaceholderMixer}（sounddevice）或 Godot TCP \texttt{crossfade}};
+    \node[flowbox, below=of audio] (ui) {7.\ \texttt{MainWindow} 刷新情境/专注/Profile 卡片；重置窗口切换计数\\ $\rightarrow$ 等待下一周期（循环至步骤 1）};
+    \node[flowbox, below=of ui, fill=white] (out) {输出：系统默认音频设备（扬声器/耳机）};
+
+    \draw[flowarr] (start) -- (poll);
+    \draw[flowarr] (poll) -- (ctx);
+    \draw[flowarr] (ctx) -- (focus);
+    \draw[flowarr] (focus) -- (decide);
+    \draw[flowarr] (decide) -- (audio);
+    \draw[flowarr] (audio) -- (ui);
+    \draw[flowarr] (ui) -- (out);
+\end{tikzpicture}
+\caption{主控制循环（1\,Hz）从采样到音频输出与界面刷新}
+\label{fig:acs-flow}
+\end{figure}
+
+\paragraph{Start Audio 与后端选择。}用户点击 Start Audio 时，编排器\textbf{先}根据当前情境调用 \texttt{transition.decide()} 取得 \texttt{profile\_id}，再 \texttt{audio.start(profile\_id=...)} 直接加载对应声景（避免先播放 \texttt{unknown} 再交叉淡化）。若配置为 \texttt{backend: godot} 且侧载启动失败、端口占用或 \texttt{layer\_count=0}，在 \texttt{fallback\_to\_placeholder: true} 下自动切换至 \texttt{PlaceholderMixer} 并提示用户。工厂 \texttt{create\_audio\_backend()} 读取 \texttt{config/default.yaml} 中的 \texttt{audio.backend}、\texttt{prefer\_mp3}、\texttt{master\_volume} 等项，保证同一套过渡逻辑适配两种渲染路径。
+
+\paragraph{情境—声景映射。}表~\ref{tab:context-profile} 列出 \texttt{WorkContext} 与默认音频 profile 的对应关系；每种 profile 由 \texttt{profiles.py} 定义显示名与基线参数，再经 \texttt{adapt\_parameters()} 按 \texttt{FocusState} 微调亮度/能量/温暖度。
+
+\begin{table}[H]
+\centering
+\caption{工作情境与默认声景 profile 映射}
+\label{tab:context-profile}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{WorkContext} & \textbf{profile\_id} & \textbf{显示名（UI）} \\
+\midrule
+\texttt{programming} & \texttt{programming} & Deep Code \\
+\texttt{team\_workflow} & \texttt{team\_workflow} & Collaborative \\
+\texttt{reading\_writing} & \texttt{reading\_writing} & Quiet Study \\
+\texttt{scientific} & \texttt{scientific} & Lab Focus \\
+\texttt{creative\_design} & \texttt{creative\_design} & Creative Flow \\
+\texttt{distraction} & \texttt{distraction} & Recovery \\
+\texttt{unknown} & \texttt{unknown} & Neutral \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 专注分数的加权融合可形式化为。表\ref{tab:acs-vars}给出主要符号定义。
 
@@ -330,7 +552,9 @@ $\gamma$ & 情境分类置信度 & $[0,1]$ \\
 $\alpha$ & EMA平滑系数 & $(0,1)$ \\
 $b_0$ & 专注分数基线偏置 & 常数 \\
 $w_i,w_\sigma,w_\delta,w_\kappa$ & 各行为特征的融合权重 & 常数 \\
-$T_d$ & 情境驻留时间阈值 & $\mathbb{R}^+$ \\
+$T_d$ & 情境驻留时间阈值（随 $\gamma$ 在 $T_{d,\min}$--$T_{d,\max}$ 间自适应） & $\mathbb{R}^+$ \\
+$T_{d,\min}$ & 高置信度情境最短驻留（默认 8\,s） & $\mathbb{R}^+$ \\
+$T_{d,\max}$ & 低置信度情境最长驻留（默认 30\,s） & $\mathbb{R}^+$ \\
 $T_c$ & 声景过渡冷却期 & $\mathbb{R}^+$ \\
 $\varepsilon$ & 专注分数迟滞带宽度 & $\mathbb{R}^+$ \\
 $\tau_f$ & 深度专注/常规交叉淡化时长 & $\mathbb{R}^+$ \\
@@ -350,7 +574,7 @@ b_0 + w_i\, i\, s - w_\sigma\, \sigma\, s - w_\delta\, \delta - w_\kappa\, \kapp
 \label{eq:focus-ema}
 F_t = \alpha F_{t-1} + (1-\alpha)\, r_t, \qquad \alpha = 0.85.
 \end{equation}
-当$|F_t - F_{t-1}| < \varepsilon$且情境未变时，过渡控制器抑制参数更新；仅当驻留条件$T_d$满足后方允许情境驱动的声景切换。
+当$|F_t - F_{t-1}| < \varepsilon$且情境未变时，过渡控制器抑制参数更新；仅当驻留条件$T_d$（及 \texttt{unknown} 宽限）满足后方允许情境驱动的声景切换。
 
 认知状态驱动的音频适配遵循题1中的\textbf{音乐适配逻辑}：轻度无聊/低刺激时略增脉冲与亮度但仍保持克制；过度刺激时降低节奏密度、和声复杂度与频谱亮度；深度专注时最小化改动以维持沉浸；疲劳时引入更温暖的纹理与更柔和的节奏；分心状态下加快向恢复型声景的过渡。
 
@@ -358,12 +582,12 @@ F_t = \alpha F_{t-1} + (1-\alpha)\, r_t, \qquad \alpha = 0.85.
 
 \textbf{（1）后端抽象与默认路径。}代码中定义\texttt{AudioBackend}协议，统一\texttt{start/stop/set\_profile/set\_parameters/crossfade\_to}接口；\texttt{start}可传入当前情境\texttt{profile\_id}，避免先播放占位声景再交叉淡化。默认后端为\texttt{PlaceholderMixer}（\texttt{audio.backend: placeholder}），通过系统默认输出设备播放；当配置为\texttt{godot}且侧载进程可用时启用\texttt{GodotAudioBackend}。若Godot启动失败、端口被占用或未加载任何音频层，且\texttt{fallback\_to\_placeholder: true}，则自动回退至占位混音器并在界面提示。
 
-\textbf{（2）资产解析。}各情境对应\texttt{assets/audio/}下的扁平命名文件（如\texttt{programming.mp3}、\texttt{programming\_pad.wav}）。配置项\texttt{prefer\_mp3: true}时优先选用用户上传的MP3主轨，而非自动生成的合成WAV占位文件；pad层可由主轨低通派生。占位混音器将主轨（增益0.6）与pad层（增益0.35）混合为单声道循环缓冲；Godot侧载在无四层stem时同样加载主轨与pad两层播放器。
+\textbf{（2）情境专辑与无间隙过渡。}各情境对应\texttt{assets/audio/\{profile\_id\}/}下的\textbf{歌曲专辑}（MP3/WAV）；切换至该情境时从专辑中\textbf{随机抽取}一首循环播放。首次启动可将旧版扁平\texttt{\{profile\}.mp3}迁移为专辑内单曲。用户可在界面“Manage Albums”中上传或删除曲目。占位混音器将所选歌曲解码为单声道循环缓冲；新曲解码在\texttt{sounddevice}回调锁之外进行，播放头跳过循环边界淡入区，并以等功率曲线混合双缓冲，避免过渡瞬间的静音 underrun。Godot侧载优先播放专辑随机曲；若目录内仍为四层stem则回退至分层混音。
 
 \textbf{（3）Godot侧载架构。}当选用Godot后端时，Python主程序（PyQt6）与Godot进程采用\textbf{进程间分离}：主程序负责活动监测、情境分类与认知估计；Godot仅负责音频渲染与层混合，二者通过\texttt{127.0.0.1:8765}上的换行分隔JSON协议通信。启动命令为
 \texttt{godot --audio-driver WASAPI --path godot/ -- --port 8765 --assets <assets\_dir>}（Windows下显式指定WASAPI，避免无音频输出的Dummy驱动）；侧载脚本通过\texttt{OS.get\_cmdline\_user\_args()}解析\texttt{--port}与\texttt{--assets}。启动前若端口已被旧侧载占用，主程序发送\texttt{quit}并等待端口释放后再拉起新进程；\texttt{set\_profile/start}响应含\texttt{layer\_count}，若为0则视为加载失败。
 
-\textbf{（4）分层混音与指令集。}Godot按层创建独立播放器；交叉淡化时并行淡出当前层组、淡入目标层组，并对亮度、能量、温暖度参数做增益插值。表~\ref{tab:godot-api}列出主要API操作；过渡控制器在情境或认知状态变化时发送\texttt{crossfade}指令，并附带目标参数与时长$\tau_f$或$\tau_r$。
+\textbf{（4）分层混音与指令集。}Godot按层创建独立播放器并缓存已加载流；交叉淡化时以等功率权重并行淡出当前层组、淡入目标层组，增益始终由亮度/能量/温暖度与层基线增益共同决定；若在淡化中途收到新的\texttt{crossfade}，则先保留响度较高一侧再切向新目标。表~\ref{tab:godot-api}列出主要API操作；过渡控制器在情境或认知状态变化时发送\texttt{crossfade}指令，并附带目标参数与时长$\tau_f$或$\tau_r$。
 
 \begin{table}[H]
 \centering
@@ -392,7 +616,7 @@ F_t = \alpha F_{t-1} + (1-\alpha)\, r_t, \qquad \alpha = 0.85.
 
 \subsubsection{用户界面与交互}
 
-界面采用深色极简PyQt6实现，非干扰式展示：当前检测情境、专注状态与分数条、活动声景配置及交叉淡化进度。用户可\textbf{手动锁定情境/声景}、调节灵敏度，并配置隐私选项。系统托盘支持后台静默运行，使用户无需主动“选歌”或编写prompt即可获得与任务匹配的声景。
+界面采用深色极简PyQt6实现，非干扰式展示：当前检测情境、专注状态与分数条、活动声景配置及交叉淡化进度。用户可\textbf{手动锁定情境/声景}、调节灵敏度、打开\textbf{类别配置}对话框维护各情境的进程名/标题关键词、在\textbf{Manage Albums}中为各情境上传/删除专辑曲目，并配置隐私选项。遇到未识别窗口时，右下角确认条允许一键将推断结果写入用户词典。系统托盘支持后台静默运行，使用户无需主动“选歌”或编写prompt即可获得与任务匹配的声景。
 
 \subsubsection{有效性分析}
 

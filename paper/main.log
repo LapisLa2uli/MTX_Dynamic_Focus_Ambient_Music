@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.4) (preloaded format=xelatex 2025.10.26)  30 MAY 2026 01:12
+This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.4) (preloaded format=xelatex 2025.10.26)  30 MAY 2026 16:34
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -2159,24 +2159,202 @@ m/n/12 rhythm\TU/SimSun(0)/m/n/12 、| \TU/lmtt/m/n/12 harmonic\TU/SimSun(0)/m/n
  []
 
 
+Overfull \hbox (23.14687pt too wide) in paragraph at lines 311--312
+[] []\TU/SimSun(0)/b/n/12 情 境 分 类 所 依 赖 的 检 测 事 件。|[] \TU/SimSun(0)/m/n/12 系 统 
+将  |“任 务 类 别”|  与  |“认 知 状 态”|  解 耦：|  \TU/SimSun(0)/b/n/12 工 作 情 境  |\TU/SimSu
+n(0)/m/n/12 （\TU/lmtt/m/n/12 WorkContext\TU/SimSun(0)/m/n/12 ）|
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 322--322
+[]|\TU/lmtt/m/n/10.95 GetForegroundWindow
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 322--322
+\TU/lmr/m/n/10.95 +
+ []
+
+
+Overfull \hbox (6.9127pt too wide) in paragraph at lines 322--322
+\TU/lmtt/m/n/10.95 psutil.Process.name()| 
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 323--323
+[]|\TU/lmtt/m/n/10.95 GetWindowText |\TU/SimSun(0)/m/n/10.95 （可 选
+ []
+
+
 
 [11]
-Overfull \hbox (36.82521pt too wide) in paragraph at lines 359--360
+Overfull \hbox (38.00388pt too wide) in paragraph at lines 335--336
+[]\TU/lmtt/m/n/12 classify_-snapshot() \TU/SimSun(0)/m/n/12 对 六 类 情 境 及 \TU/lmt
+t/m/n/12 distraction \TU/SimSun(0)/m/n/12 并 行 打 分，|  规 则 定 义 于 \TU/lmtt/m/n/12 
+context/rules.py\TU/SimSun(0)/m/n/12 。|
+ []
+
+
+Underfull \hbox (badness 5817) in paragraph at lines 347--347
+[]|\TU/lmtt/m/n/10 code\TU/lmr/m/n/10 , \TU/lmtt/m/n/10 cursor\TU/lmr/m/n/10 , 
+\TU/lmtt/m/n/10 pycharm64\TU/lmr/m/n/10 ,
+ []
+
+
+Underfull \hbox (badness 1655) in paragraph at lines 351--352
+[]|\TU/lmtt/m/n/10 microsoft teams\TU/lmr/m/n/10 , \TU/lmtt/m/n/10 slack |\TU/l
+mr/m/n/10 , \TU/lmtt/m/n/10 zoom
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 352--352
+[]|\TU/lmtt/m/n/10 reading_-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 354--355
+[]|\TU/lmtt/m/n/10 microsoft word\TU/lmr/m/n/10 , \TU/lmtt/m/n/10 document\TU/l
+mr/m/n/10 ,
+ []
+
+
+Underfull \hbox (badness 5817) in paragraph at lines 356--356
+[]|\TU/lmtt/m/n/10 matlab\TU/lmr/m/n/10 , \TU/lmtt/m/n/10 jupyter\TU/lmr/m/n/10
+ , \TU/lmtt/m/n/10 spyder\TU/lmr/m/n/10 ,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 357--358
+[]|\TU/lmtt/m/n/10 jupyter\TU/lmr/m/n/10 , \TU/lmtt/m/n/10 notebook\TU/lmr/m/n/
+10 , \TU/lmtt/m/n/10 research\TU/lmr/m/n/10 ,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 358--358
+[]|\TU/lmtt/m/n/10 creative_-
+ []
+
+
+Underfull \hbox (badness 3407) in paragraph at lines 360--361
+[]|\TU/lmtt/m/n/10 figma\TU/lmr/m/n/10 , \TU/lmtt/m/n/10 design\TU/lmr/m/n/10 ,
+ \TU/lmtt/m/n/10 blender\TU/lmr/m/n/10 , \TU/lmtt/m/n/10 after
+ []
+
+
+Overfull \hbox (1.43422pt too wide) in paragraph at lines 368--369
+\TU/SimSun(0)/m/n/12 所 列 娱 乐\TU/lmr/m/n/12 /\TU/SimSun(0)/m/n/12 社 交 类 关 键 词；| 
+ 若 标 题 同 时 匹 配 \TU/SimSun(0)/b/n/12 工 作 类 浏 览 器 关 键 词  |\TU/SimSun(0)/m/n/12 （如
+ \TU/lmtt/m/n/12 github\TU/SimSun(0)/m/n/12 、| \TU/lmtt/m/n/12 stackoverflow\TU
+/SimSun(0)/m/n/12 、|
+ []
+
+
+
+[12]
+Overfull \hbox (4.73775pt too wide) in paragraph at lines 376--377
+[] []\TU/SimSun(0)/b/n/12 仓 库 目 录 结 构。|[] \TU/SimSun(0)/m/n/12 表 [][]\TU/lmr/m/
+n/12 3[][] \TU/SimSun(0)/m/n/12 概 括 主 要 目 录 及 其 职 责；|  实 现 代 码 集 中 于 \TU/lmtt/m
+/n/12 src/adaptive_-soundscape/\TU/SimSun(0)/m/n/12 ，|
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 387--387
+[]|\TU/lmtt/m/n/10.95 src/adaptive_-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 391--392
+[]|\TU/SimSun(0)/m/n/10.95 过 渡 控 制：| \TU/lmtt/m/n/10.95 TransitionController \T
+U/SimSun(0)/m/n/10.95 输 出
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 391--392
+\TU/lmtt/m/n/10.95 TransitionDecision |\TU/SimSun(0)/m/n/10.95 （目 标 \TU/lmr/m/n
+/10.95 profile\TU/SimSun(0)/m/n/10.95 、|  交 叉 淡 化 时
+ []
+
+
+Underfull \hbox (badness 1102) in paragraph at lines 392--393
+[]|\TU/SimSun(0)/m/n/10.95 音 频 引 擎：| \TU/lmtt/m/n/10.95 AudioBackend \TU/SimSun
+(0)/m/n/10.95 协 议、| \TU/lmtt/m/n/10.95 PlaceholderMixer\TU/SimSun(0)/m/n/10.95 
+、|
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 394--395
+[]|\TU/SimSun(0)/m/n/10.95 公 共 基 础 设 施：| \TU/lmtt/m/n/10.95 events.py \TU/SimSu
+n(0)/m/n/10.95 领 域 事 件、| \TU/lmtt/m/n/10.95 EventBus\TU/SimSun(0)/m/n/10.95 、|
+ []
+
+
+
+[13]
+Overfull \hbox (21.92047pt too wide) in paragraph at lines 404--405
+[] []\TU/SimSun(0)/b/n/12 模 块 依 赖 关 系。|[] \TU/SimSun(0)/m/n/12 编 排 器 在 启 动 时 依 
+次 构 造 \TU/lmtt/m/n/12 EventBus\TU/SimSun(0)/m/n/12 、| \TU/lmtt/m/n/12 ActivityM
+onitor\TU/SimSun(0)/m/n/12 、| \TU/lmtt/m/n/12 ContextPersistence\TU/SimSun(0)/m
+/n/12 、|
+ []
+
+
+Overfull \hbox (44.72403pt too wide) in paragraph at lines 460--461
+[] []\TU/SimSun(0)/b/n/12 事 件 总 线 与 领 域 事 件。|[] \TU/lmtt/m/n/12 EventBus \TU/Si
+mSun(0)/m/n/12 提 供 轻 量 级 \TU/lmr/m/n/12 typed pub/sub\TU/SimSun(0)/m/n/12 ：|  主
+ 循 环 与 \TU/lmr/m/n/12 UI \TU/SimSun(0)/m/n/12 发 布 \TU/lmtt/m/n/12 ActivitySnaps
+hot\TU/SimSun(0)/m/n/12 、|
+ []
+
+
+
+[14]
+Overfull \hbox (47.1952pt too wide) in paragraph at lines 465--466
+[]\TU/SimSun(0)/b/n/12 情 境 推 断\TU/SimSun(0)/m/n/12 ：| \TU/lmtt/m/n/12 classify_
+-snapshot() \TU/SimSun(0)/m/n/12 仅 依 据 前 台 \TU/SimSun(0)/b/n/12 进 程 名 \TU/SimSu
+n(0)/m/n/12 与 \TU/SimSun(0)/b/n/12 窗 口 标 题 \TU/SimSun(0)/m/n/12 对 六 类 工 作 情 境 及
+ \TU/lmtt/m/n/12 distraction
+ []
+
+
+Overfull \hbox (17.87587pt too wide) in paragraph at lines 466--467
+[]\TU/SimSun(0)/b/n/12 认 知 估 计\TU/SimSun(0)/m/n/12 ：|  由 输 入 速 率 $\OML/cmm/m/it
+/12 i$\TU/SimSun(0)/m/n/12 、|  切 换 速 率 $\OML/cmm/m/it/12 ^^[$\TU/SimSun(0)/m/n/
+12 、|  空 闲 比 $\OML/cmm/m/it/12 ^^N$\TU/SimSun(0)/m/n/12 、| \TU/lmr/m/n/12 CPU \
+TU/SimSun(0)/m/n/12 负 载 $\OML/cmm/m/it/12 ^^T$ \TU/SimSun(0)/m/n/12 及 情 境 先 验 构
+ 成 \TU/lmtt/m/n/12 FocusSignals\TU/SimSun(0)/m/n/12 ，|
+ []
+
+
+
+[15]
+Overfull \hbox (71.57388pt too wide) in paragraph at lines 509--510
+[] []\TU/lmr/bx/n/12 Start Audio \TU/SimSun(0)/b/n/12 与 后 端 选 择。|[] \TU/SimSun(
+0)/m/n/12 用 户 点 击 \TU/lmr/m/n/12 Start Audio \TU/SimSun(0)/m/n/12 时，|  编 排 器 \T
+U/SimSun(0)/b/n/12 先 \TU/SimSun(0)/m/n/12 根 据 当 前 情 境 调 用 \TU/lmtt/m/n/12 trans
+ition.decide()
+ []
+
+
+
+[16]
+
+[17]
+Overfull \hbox (36.82521pt too wide) in paragraph at lines 583--584
 |\TU/SimSun(0)/b/n/12 （\TU/lmr/bx/n/12 1\TU/SimSun(0)/b/n/12 ）|  后 端 抽 象 与 默 认 
 路 径。|  \TU/SimSun(0)/m/n/12 代 码 中 定 义 \TU/lmtt/m/n/12 AudioBackend \TU/SimSun(0
 )/m/n/12 协 议，|  统 一 \TU/lmtt/m/n/12 start/stop/set_-profile/set_-
  []
 
 
-
-[12]
-Overfull \hbox (7.90643pt too wide) in paragraph at lines 363--365
+Overfull \hbox (7.90643pt too wide) in paragraph at lines 587--589
 \TU/lmtt/m/n/12 --audio-driver WASAPI --path godot/ -- --port 8765 --assets <as
 sets_-dir> |\TU/SimSun(0)/m/n/12 （\TU/lmr/m/n/12 Win-
  []
 
 
-Overfull \hbox (42.18582pt too wide) in paragraph at lines 387--388
+
+[18]
+Overfull \hbox (42.18582pt too wide) in paragraph at lines 611--612
 []|\TU/SimSun(0)/b/n/12 （\TU/lmr/bx/n/12 5\TU/SimSun(0)/b/n/12 ）|  配 置 项。|  \TU
 /SimSun(0)/m/n/12 在 \TU/lmtt/m/n/12 config/default.yaml \TU/SimSun(0)/m/n/12 中，
 |  核 心 音 频 项 为 \TU/lmtt/m/n/12 audio.backend |\TU/SimSun(0)/m/n/12 （默 认 \TU/lmt
@@ -2185,11 +2363,9 @@ t/m/n/12 placeholder\TU/SimSun(0)/m/n/12 ） 、|
 
 
 
-[13]
+[19]
 
-[14]
-
-[15]
+[20]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
 <use Focus Music Requirements.pdf>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
@@ -2198,227 +2374,227 @@ File: Focus Music Requirements.pdf Graphic file (type pdf)
 <use Focus Music Requirements.pdf, page 1>
 
 
-[16
-
-]
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 1>
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 1>
-
-
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 1>
-[17
-
-]
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 2>
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 2>
-
-
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 2>
-[18
-
-]
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 3>
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 3>
-
-
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 3>
-[19
-
-]
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 4>
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 4>
-
-
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 4>
-[20
-
-]
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 5>
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 5>
-
-
-File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 5>
 [21
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 6>
+<use Focus Music Requirements.pdf, page 1>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 6>
+<use Focus Music Requirements.pdf, page 1>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 6>
+<use Focus Music Requirements.pdf, page 1>
 [22
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 7>
+<use Focus Music Requirements.pdf, page 2>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 7>
+<use Focus Music Requirements.pdf, page 2>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 7>
+<use Focus Music Requirements.pdf, page 2>
 [23
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 8>
+<use Focus Music Requirements.pdf, page 3>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 8>
+<use Focus Music Requirements.pdf, page 3>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 8>
+<use Focus Music Requirements.pdf, page 3>
 [24
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 9>
+<use Focus Music Requirements.pdf, page 4>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 9>
+<use Focus Music Requirements.pdf, page 4>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 9>
+<use Focus Music Requirements.pdf, page 4>
 [25
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 10>
+<use Focus Music Requirements.pdf, page 5>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 10>
+<use Focus Music Requirements.pdf, page 5>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 10>
+<use Focus Music Requirements.pdf, page 5>
 [26
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 11>
+<use Focus Music Requirements.pdf, page 6>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 11>
+<use Focus Music Requirements.pdf, page 6>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 11>
+<use Focus Music Requirements.pdf, page 6>
 [27
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 12>
+<use Focus Music Requirements.pdf, page 7>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 12>
+<use Focus Music Requirements.pdf, page 7>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 12>
+<use Focus Music Requirements.pdf, page 7>
 [28
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 13>
+<use Focus Music Requirements.pdf, page 8>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 13>
+<use Focus Music Requirements.pdf, page 8>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 13>
+<use Focus Music Requirements.pdf, page 8>
 [29
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 14>
+<use Focus Music Requirements.pdf, page 9>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 14>
+<use Focus Music Requirements.pdf, page 9>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 14>
+<use Focus Music Requirements.pdf, page 9>
 [30
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 15>
+<use Focus Music Requirements.pdf, page 10>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 15>
+<use Focus Music Requirements.pdf, page 10>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 15>
+<use Focus Music Requirements.pdf, page 10>
 [31
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 16>
+<use Focus Music Requirements.pdf, page 11>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 16>
+<use Focus Music Requirements.pdf, page 11>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 16>
+<use Focus Music Requirements.pdf, page 11>
 [32
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 17>
+<use Focus Music Requirements.pdf, page 12>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 17>
+<use Focus Music Requirements.pdf, page 12>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 17>
+<use Focus Music Requirements.pdf, page 12>
 [33
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 18>
+<use Focus Music Requirements.pdf, page 13>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 18>
+<use Focus Music Requirements.pdf, page 13>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 18>
+<use Focus Music Requirements.pdf, page 13>
 [34
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 19>
+<use Focus Music Requirements.pdf, page 14>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 19>
+<use Focus Music Requirements.pdf, page 14>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 19>
+<use Focus Music Requirements.pdf, page 14>
 [35
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 20>
+<use Focus Music Requirements.pdf, page 15>
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 20>
+<use Focus Music Requirements.pdf, page 15>
 
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
-<use Focus Music Requirements.pdf, page 20>
+<use Focus Music Requirements.pdf, page 15>
 [36
+
+]
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 16>
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 16>
+
+
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 16>
+[37
+
+]
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 17>
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 17>
+
+
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 17>
+[38
+
+]
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 18>
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 18>
+
+
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 18>
+[39
+
+]
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 19>
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 19>
+
+
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 19>
+[40
+
+]
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 20>
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 20>
+
+
+File: Focus Music Requirements.pdf Graphic file (type pdf)
+<use Focus Music Requirements.pdf, page 20>
+[41
 
 ]
 File: Focus Music Requirements.pdf Graphic file (type pdf)
@@ -2429,7 +2605,7 @@ File: Focus Music Requirements.pdf Graphic file (type pdf)
 
 File: Focus Music Requirements.pdf Graphic file (type pdf)
 <use Focus Music Requirements.pdf, page 21>
-[37
+[42
 
 ] (main.aux)
  ***********
@@ -2437,18 +2613,18 @@ LaTeX2e <2025-06-01> patch level 1
 L3 programming layer <2022/08/05>
  ***********
 Package rerunfilecheck Info: File `main.out' has not changed.
-(rerunfilecheck)             Checksum: FEBA48011858BCC9222665396D6CCFE6;4033.
+(rerunfilecheck)             Checksum: 5262884F79FF4BDCD6BB357306F87F04;4173.
 Package logreq Info: Writing requests to 'main.run.xml'.
 \openout1 = `main.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 57239 strings out of 403246
- 1363035 string characters out of 5460987
- 2362497 words of memory out of 5000000
- 84904 multiletter control sequences out of 15000+600000
- 637931 words of font info for 117 fonts, out of 8000000 for 9000
+ 57609 strings out of 403246
+ 1377246 string characters out of 5460987
+ 2364836 words of memory out of 5000000
+ 85259 multiletter control sequences out of 15000+600000
+ 638664 words of font info for 131 fonts, out of 8000000 for 9000
  1348 hyphenation exceptions out of 8191
  93i,17n,111p,1199b,924s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on main.pdf (37 pages).
+Output written on main.pdf (42 pages).

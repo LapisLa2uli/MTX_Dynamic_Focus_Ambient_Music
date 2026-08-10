@@ -33,30 +33,31 @@ Launch uses `--audio-driver WASAPI` on Windows so audio is not routed through Go
 | `status` / `ping` | — | Query playback state and loaded layers |
 | `quit` | — | Exit Godot |
 
-## Layer assets
+## Album / layer assets
 
-**Preferred layout** (four synchronized stems per context):
+**Preferred layout** (song album per context — random track on each switch):
 
 ```
 assets/audio/
   programming/
-    ambient.wav   # or .mp3 / .ogg
-    rhythm.wav
-    harmonic.wav
-    accent.wav
+    programming_01.mp3
+    deep_focus_loop.wav
   reading_writing/
     ...
 ```
 
-**Fallback** (flat files when layered folders are missing):
+**Legacy four-stem layout** (used only if no album songs are present; filenames `ambient` / `rhythm` / `harmonic` / `accent`):
 
 ```
 assets/audio/
-  programming.mp3
-  programming_pad.wav
+  programming/
+    ambient.wav
+    rhythm.wav
+    harmonic.wav
+    accent.wav
 ```
 
-Supported formats: `.mp3`, `.wav`, `.ogg` (Godot). MP3 in the Python placeholder mixer requires `miniaudio`.
+Supported formats: `.mp3`, `.wav`, `.ogg` (Godot). MP3 in the Python placeholder mixer requires `miniaudio`. Use **Manage Albums** in the app UI to upload or delete songs.
 
 ## Run manually
 

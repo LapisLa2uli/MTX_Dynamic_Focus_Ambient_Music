@@ -133,7 +133,11 @@ class MainWindow(QMainWindow):
 
         btn_row = QHBoxLayout()
         self._audio_btn = QPushButton("Start Audio")
+        self._categories_btn = QPushButton("Configure Categories")
+        self._albums_btn = QPushButton("Manage Albums")
         btn_row.addWidget(self._audio_btn)
+        btn_row.addWidget(self._categories_btn)
+        btn_row.addWidget(self._albums_btn)
         btn_row.addStretch()
         root.addLayout(btn_row)
 
