@@ -103,6 +103,7 @@ class AdaptiveSoundscapeApp:
         self._last_process_key = ""
         # Pending classification info for the "Classification wrong?" button
         self._pending_classification: dict | None = None
+        self._toast_manual = False  # True when the user manually opened the toast
 
         # Sync initial volume with config / Settings page
         self.director.set_volume(self.settings.adaptive_music.master_volume)
@@ -186,6 +187,7 @@ class AdaptiveSoundscapeApp:
         self.monitor.stop()
         self.director.shutdown()
         self._toast.hide()
+        self._toast_manual = False
         self._pending_classification = None
         self.window.home_page.set_classify_available(False)
 
@@ -485,6 +487,10 @@ class AdaptiveSoundscapeApp:
         if process_key != self._last_process_key:
             self._last_process_key = process_key
 
+        # Don't touch a toast the user opened manually — let them dismiss it.
+        if self._toast_manual:
+            return
+
         # Toast auto-hides when the current window is no longer misc/unclassified.
         if not resolved.needs_confirm or not resolved.is_misc:
             if self._toast.is_showing_for(resolved.process_name):
@@ -518,6 +524,7 @@ class AdaptiveSoundscapeApp:
         info = self._pending_classification
         if info is None:
             return
+        self._toast_manual = True
         self._toast.show_inference(
             process_name=info["process_name"],
             window_title=info["window_title"],
@@ -529,6 +536,7 @@ class AdaptiveSoundscapeApp:
     def _on_inference_confirmed(
         self, process_name: str, window_title: str, context: object
     ) -> None:
+        self._toast_manual = False
         if not isinstance(context, WorkContext) or context == WorkContext.UNKNOWN:
             return
         key = _process_key(process_name)
@@ -558,6 +566,7 @@ class AdaptiveSoundscapeApp:
         self._refresh_ui(decision.display_name)
 
     def _on_inference_dismissed(self, process_key: str) -> None:
+        self._toast_manual = False
         if process_key:
             self._dismissed_processes.add(process_key)
 
