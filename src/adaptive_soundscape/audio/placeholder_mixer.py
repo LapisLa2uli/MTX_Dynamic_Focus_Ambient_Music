@@ -50,10 +50,26 @@ class PlaceholderMixer:
         self._lock = threading.Lock()
         self._playing = False
         self._preload_thread: threading.Thread | None = None
+        self._current_level: float = 0.0
+        self._n_bands = 48
+        self._band_edges: np.ndarray = _build_band_edges(
+            self._n_bands, sample_rate, 40.0
+        )
+        self._current_bands: list[float] = [0.0] * self._n_bands
 
     @property
     def is_playing(self) -> bool:
         return self._playing
+
+    @property
+    def current_level(self) -> float:
+        """Last RMS amplitude (0–1), updated from the audio callback thread."""
+        return self._current_level
+
+    @property
+    def current_bands(self) -> list[float]:
+        """48 log-spaced frequency-band amplitudes (0–1)."""
+        return list(self._current_bands)
 
     def invalidate_caches(self) -> None:
         """Drop decoded audio after album edits so new tracks are picked up."""
@@ -287,4 +303,51 @@ class PlaceholderMixer:
         else:
             out = current
 
-        return (out * self.master_volume).astype(np.float32)
+        result = (out * self.master_volume).astype(np.float32)
+        # Store RMS for the UI visualiser (atomic read, GIL-protected).
+        self._current_level = float(np.sqrt(np.mean(result**2)) + 1e-8)
+        # Extract 48 log‑spaced frequency-band magnitudes for the EQ ring.
+        try:
+            self._current_bands = _band_magnitudes(
+                result, self._band_edges, self.sample_rate
+            )
+        except Exception:
+            self._current_bands = [0.0] * self._n_bands
+        return result
+
+
+# ---------------------------------------------------------------------------
+# FFT frequency‑band helpers (module‑level so they compile once)
+# ---------------------------------------------------------------------------
+
+def _build_band_edges(
+    n_bands: int, sr: int, low_hz: float = 40.0
+) -> np.ndarray:
+    """Log‑spaced band edges from *low_hz* to Nyquist."""
+    high_hz = sr / 2.0
+    return np.logspace(np.log10(low_hz), np.log10(high_hz), n_bands + 1)
+
+
+def _band_magnitudes(
+    block: np.ndarray, edges: np.ndarray, sr: int
+) -> list[float]:
+    """Return *len(edges)-1* normalised (0‑1) magnitudes for an audio block."""
+    # Mono‑compatible — use first channel if stereo
+    mono = block if block.ndim == 1 else block[:, 0]
+    n = len(mono)
+    spec = np.abs(np.fft.rfft(mono)) / n
+    freqs = np.fft.rfftfreq(n, 1.0 / sr)
+
+    bands: list[float] = []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        mask = (freqs >= lo) & (freqs < hi)
+        if mask.any():
+            bands.append(float(np.mean(spec[mask])))
+        else:
+            bands.append(0.0)
+
+    # Normalise to 0‑1 (clamp, avoid division by zero)
+    mx = max(bands)
+    if mx > 1e-8:
+        bands = [min(1.0, v / mx) for v in bands]
+    return bands

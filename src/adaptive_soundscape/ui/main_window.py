@@ -1,8 +1,9 @@
-"""Main application window."""
+"""Main application window with sidebar navigation and page stack."""
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -11,44 +12,25 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QSizePolicy,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from adaptive_soundscape.core.events import FocusState, WorkContext
-from adaptive_soundscape.ui.widgets import FocusMeter, StatusCard
+from adaptive_soundscape.ui.home_page import HomePage
+from adaptive_soundscape.ui.settings_page import SettingsPage
+from adaptive_soundscape.ui.upload_page import UploadPage
 
+SIDEBAR_WIDTH = 190
 
 DARK_STYLE = """
-QMainWindow, QWidget {
+QMainWindow {
     background-color: #1a1a1e;
     color: #e8e8ec;
     font-family: 'Segoe UI', sans-serif;
     font-size: 13px;
-}
-QFrame#statusCard {
-    background-color: #25252b;
-    border: 1px solid #33333a;
-    border-radius: 8px;
-    padding: 8px;
-}
-QLabel#cardTitle {
-    color: #888894;
-    font-size: 11px;
-}
-QLabel#cardValue {
-    font-size: 15px;
-    font-weight: 600;
-}
-QProgressBar {
-    background-color: #2e2e36;
-    border: none;
-    border-radius: 4px;
-    height: 8px;
-}
-QProgressBar::chunk {
-    background-color: #5b8def;
-    border-radius: 4px;
 }
 QPushButton {
     background-color: #33333a;
@@ -66,86 +48,328 @@ QComboBox, QDoubleSpinBox {
 QCheckBox { spacing: 8px; }
 """
 
+LIGHT_STYLE = """
+QMainWindow {
+    background-color: #f5f5f8;
+    color: #1a1a1e;
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 13px;
+}
+QPushButton {
+    background-color: #e0e0e5;
+    border: 1px solid #c0c0c8;
+    border-radius: 6px;
+    padding: 8px 14px;
+    color: #1a1a1e;
+}
+QPushButton:hover { background-color: #d0d0d8; }
+QComboBox, QDoubleSpinBox {
+    background-color: #ffffff;
+    border: 1px solid #c0c0c8;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+QCheckBox { spacing: 8px; }
+"""
+
+SIDEBAR_STYLE = """
+QWidget#sidebar {
+    background-color: #16161a;
+    border-right: 1px solid #2a2a30;
+}
+"""
+
+LIGHT_SIDEBAR_STYLE = """
+QWidget#sidebar {
+    background-color: #ededf2;
+    border-right: 1px solid #d0d0d8;
+}
+"""
+
+NAV_BTN_BASE = """
+QPushButton {
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: #88889a;
+    font-size: 16px;
+    font-weight: 700;
+    text-align: left;
+    padding: 16px 20px;
+}
+QPushButton:hover {
+    background-color: #22222a;
+    color: #c0c0d0;
+}
+"""
+
+NAV_BTN_ACTIVE = """
+QPushButton {
+    background-color: #242430;
+    border-left: 3px solid #5b8def;
+    border-radius: 0 8px 8px 0;
+    color: #e8e8ec;
+    font-size: 16px;
+    font-weight: 700;
+    text-align: left;
+    padding: 16px 20px;
+}
+"""
+
+LIGHT_NAV_BTN_BASE = """
+QPushButton {
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: #707080;
+    font-size: 16px;
+    font-weight: 700;
+    text-align: left;
+    padding: 16px 20px;
+}
+QPushButton:hover {
+    background-color: #e0e0e8;
+    color: #383848;
+}
+"""
+
+LIGHT_NAV_BTN_ACTIVE = """
+QPushButton {
+    background-color: #e0e0e8;
+    border-left: 3px solid #5b8def;
+    border-radius: 0 8px 8px 0;
+    color: #181820;
+    font-size: 16px;
+    font-weight: 700;
+    text-align: left;
+    padding: 16px 20px;
+}
+"""
+
+
+NAV_ITEMS = [
+    ("🏠  Home", 0),
+    ("📤  Upload", 1),
+    ("⚙️  Settings", 2),
+]
+
 
 class MainWindow(QMainWindow):
-    """Dark minimal dashboard for adaptive soundscape."""
+    """Dark dashboard with sidebar navigation.
+
+    ┌──────────┬──────────────────────────┐
+    │ Sidebar  │   QStackedWidget         │
+    │          │                          │
+    │ • Home   │   Home / Upload /        │
+    │ • Upload │   Settings page          │
+    │ • Sett.  │                          │
+    └──────────┴──────────────────────────┘
+    """
+
+    categories_clicked = pyqtSignal()
+    albums_clicked = pyqtSignal()
 
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Adaptive Cognitive Soundscape")
-        self.setMinimumSize(480, 420)
+        self.setMinimumSize(780, 540)
+        self._dark = True
+        self._current_nav_index = 0
+        self._status_colors = {}
+        self._status_tint: str | None = None
+        self._applying_tint = False
         self.setStyleSheet(DARK_STYLE)
 
         central = QWidget()
         self.setCentralWidget(central)
-        root = QVBoxLayout(central)
-        root.setSpacing(12)
-        root.setContentsMargins(16, 16, 16, 16)
+        root = QHBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        header = QLabel("Adaptive Soundscape")
-        header.setStyleSheet("font-size: 18px; font-weight: 700;")
-        root.addWidget(header)
+        # ── Sidebar ──
+        self._sidebar = QWidget()
+        self._sidebar.setObjectName("sidebar")
+        self._sidebar.setFixedWidth(SIDEBAR_WIDTH)
+        self._sidebar.setStyleSheet(SIDEBAR_STYLE)
+        sidebar_layout = QVBoxLayout(self._sidebar)
+        sidebar_layout.setContentsMargins(8, 24, 8, 16)
+        sidebar_layout.setSpacing(4)
 
-        cards = QHBoxLayout()
-        self._context_card = StatusCard("Context")
-        self._focus_state_card = StatusCard("Focus State")
-        self._profile_card = StatusCard("Active Profile")
-        cards.addWidget(self._context_card)
-        cards.addWidget(self._focus_state_card)
-        cards.addWidget(self._profile_card)
-        root.addLayout(cards)
+        self._nav_buttons: list[QPushButton] = []
+        for label, idx in NAV_ITEMS:
+            btn = QPushButton(label)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _checked, i=idx: self._navigate(i))
+            sidebar_layout.addWidget(btn)
+            self._nav_buttons.append(btn)
 
-        self._focus_meter = FocusMeter()
-        root.addWidget(self._focus_meter)
+        sidebar_layout.addStretch()
 
-        override_row = QHBoxLayout()
+        root.addWidget(self._sidebar)
+
+        # ── Content area ──
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(0)
+
+        self._pages = QStackedWidget()
+
+        self._home_page = HomePage()
+        self._upload_page = UploadPage()
+        self._settings_page = SettingsPage()
+
+        self._pages.addWidget(self._home_page)    # index 0
+        self._pages.addWidget(self._upload_page)   # index 1
+        self._pages.addWidget(self._settings_page)  # index 2
+
+        right.addWidget(self._pages, stretch=1)
+
+        # ── Status label ──
+        self._status_label = QLabel("")
+        self._status_label.setStyleSheet(
+            "color: #c07070; font-size: 11px; font-weight: 700;"
+            "padding: 4px 20px 8px 20px;"
+        )
+        self._status_label.setWordWrap(True)
+        right.addWidget(self._status_label)
+
+        root.addLayout(right, stretch=1)
+
+        # ── Hidden legacy controls (app.py backward-compat) ──
+        self._build_hidden_controls()
+
+        # ── Wire settings signals ──
+        self._settings_page.home_requested.connect(lambda: self._navigate(0))
+        self._settings_page.dark_mode_toggled.connect(self._set_dark_mode)
+        self._settings_page.status_colors_changed.connect(self._on_status_colors)
+
+        # Start on Home
+        self._current_nav_index = 0
+        self._navigate(0)
+
+    # ------------------------------------------------------------------
+    # Hidden controls
+    # ------------------------------------------------------------------
+    def _build_hidden_controls(self) -> None:
         self._override_check = QCheckBox("Manual override")
+        self._override_check.setVisible(False)
         self._context_combo = QComboBox()
+        self._context_combo.setVisible(False)
         for ctx in WorkContext:
             if ctx != WorkContext.UNKNOWN:
                 self._context_combo.addItem(ctx.value.replace("_", " ").title(), ctx)
-        override_row.addWidget(self._override_check)
-        override_row.addWidget(self._context_combo, stretch=1)
-        root.addLayout(override_row)
-
-        sens_row = QHBoxLayout()
-        sens_row.addWidget(QLabel("Sensitivity"))
         self._sensitivity_spin = QDoubleSpinBox()
+        self._sensitivity_spin.setVisible(False)
         self._sensitivity_spin.setRange(0.2, 2.0)
         self._sensitivity_spin.setSingleStep(0.1)
         self._sensitivity_spin.setValue(1.0)
-        sens_row.addWidget(self._sensitivity_spin)
-        root.addLayout(sens_row)
-
-        privacy_label = QLabel("Privacy")
-        privacy_label.setStyleSheet("font-weight: 600; margin-top: 8px;")
-        root.addWidget(privacy_label)
-
-        self._title_check = QCheckBox("Collect window titles (metadata only)")
+        self._title_check = QCheckBox("Collect window titles")
+        self._title_check.setVisible(False)
         self._title_check.setChecked(True)
         self._process_check = QCheckBox("Collect process names")
+        self._process_check.setVisible(False)
         self._process_check.setChecked(True)
-        self._log_check = QCheckBox("Enable activity logging (off by default)")
+        self._log_check = QCheckBox("Activity logging")
+        self._log_check.setVisible(False)
         self._log_check.setChecked(False)
-        root.addWidget(self._title_check)
-        root.addWidget(self._process_check)
-        root.addWidget(self._log_check)
 
-        btn_row = QHBoxLayout()
-        self._audio_btn = QPushButton("Start Audio")
-        self._categories_btn = QPushButton("Configure Categories")
-        self._albums_btn = QPushButton("Manage Albums")
-        btn_row.addWidget(self._audio_btn)
-        btn_row.addWidget(self._categories_btn)
-        btn_row.addWidget(self._albums_btn)
-        btn_row.addStretch()
-        root.addLayout(btn_row)
+        # Dummy buttons — keep old attribute names alive for safety.
+        self._audio_btn = QPushButton()
+        self._audio_btn.setVisible(False)
+        self._categories_btn = QPushButton()
+        self._categories_btn.setVisible(False)
+        self._albums_btn = QPushButton()
+        self._albums_btn.setVisible(False)
 
-        self._status_label = QLabel("")
-        self._status_label.setStyleSheet("color: #c07070; font-size: 12px;")
-        self._status_label.setWordWrap(True)
-        root.addWidget(self._status_label)
-        root.addStretch()
+    # ------------------------------------------------------------------
+    # Navigation
+    # ------------------------------------------------------------------
+    def _navigate(self, index: int) -> None:
+        self._current_nav_index = index
+        self._pages.setCurrentIndex(index)
+        active_style = NAV_BTN_ACTIVE if self._dark else LIGHT_NAV_BTN_ACTIVE
+        base_style = NAV_BTN_BASE if self._dark else LIGHT_NAV_BTN_BASE
+        for i, btn in enumerate(self._nav_buttons):
+            btn.setStyleSheet(active_style if i == index else base_style)
+
+    # ------------------------------------------------------------------
+    # Theme switching
+    # ------------------------------------------------------------------
+
+    def _set_dark_mode(self, enabled: bool) -> None:
+        """Toggle between dark and light application theme."""
+        self._dark = enabled
+        self.setStyleSheet(DARK_STYLE if enabled else LIGHT_STYLE)
+        self._sidebar.setStyleSheet(SIDEBAR_STYLE if enabled else LIGHT_SIDEBAR_STYLE)
+
+        # Re-apply nav button styles for current active index
+        active_style = NAV_BTN_ACTIVE if enabled else LIGHT_NAV_BTN_ACTIVE
+        base_style = NAV_BTN_BASE if enabled else LIGHT_NAV_BTN_BASE
+        for i, btn in enumerate(self._nav_buttons):
+            btn.setStyleSheet(active_style if i == self._current_nav_index else base_style)
+
+        # Push theme to child pages
+        self._home_page.set_dark_mode(enabled)
+        self._upload_page.set_dark_mode(enabled)
+        self._settings_page.set_dark_mode(enabled)
+
+        # Reapply current status tint after theme switch
+        self._apply_page_tint()
+
+    @property
+    def is_dark_mode(self) -> bool:
+        return self._dark
+
+    def _on_status_colors(self, colors: dict[str, str]) -> None:
+        """Store the latest per-status colour map."""
+        self._status_colors.update(colors)
+
+    def _apply_page_tint(self) -> None:
+        """Re-apply the stored status tint on all pages."""
+        if self._status_tint is None:
+            return
+        self._applying_tint = True
+        for page in (self._home_page, self._upload_page, self._settings_page):
+            style = page.styleSheet() or ""
+            style = style.rstrip()
+            # Remove any previously appended background-color override
+            if "\nbackground-color:" in style:
+                style = style[: style.rindex("\nbackground-color:")]
+            page.setStyleSheet(f"{style}\nbackground-color: {self._status_tint};")
+        self._applying_tint = False
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def update_status_background(self, profile_id: str) -> None:
+        """Tint the central widget background to match the active status colour."""
+        hex_color = self._status_colors.get(profile_id)
+        if hex_color is None:
+            self._status_tint = None
+            return
+        if self._dark:
+            base_r, base_g, base_b = 26, 26, 32
+        else:
+            base_r, base_g, base_b = 245, 245, 248
+        c = QColor(hex_color)
+        r = int(base_r * 0.88 + c.red() * 0.12)
+        g = int(base_g * 0.88 + c.green() * 0.12)
+        b = int(base_b * 0.88 + c.blue() * 0.12)
+        self._status_tint = QColor(r, g, b).name()
+        self._apply_page_tint()
+
+    @property
+    def home_page(self) -> HomePage:
+        return self._home_page
+
+    @property
+    def upload_page(self) -> UploadPage:
+        return self._upload_page
+
+    @property
+    def settings_page(self) -> SettingsPage:
+        return self._settings_page
 
     def set_status_message(self, message: str) -> None:
         self._status_label.setText(message)
@@ -158,10 +382,7 @@ class MainWindow(QMainWindow):
         focus_score: float,
         profile_name: str,
     ) -> None:
-        self._context_card.set_value(context.value.replace("_", " ").title())
-        self._focus_state_card.set_value(focus_state.value.replace("_", " ").title())
-        self._profile_card.set_value(profile_name)
-        self._focus_meter.set_score(focus_score)
+        self._home_page.update_status(context=context, focus_score=focus_score)
 
     @property
     def manual_override_enabled(self) -> bool:

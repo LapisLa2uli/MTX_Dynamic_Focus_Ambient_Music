@@ -15,6 +15,7 @@ src/adaptive_soundscape/activity/metrics.py
 src/adaptive_soundscape/activity/monitor.py
 src/adaptive_soundscape/activity/window_tracker.py
 src/adaptive_soundscape/audio/__init__.py
+src/adaptive_soundscape/audio/album.py
 src/adaptive_soundscape/audio/asset_generator.py
 src/adaptive_soundscape/audio/backend.py
 src/adaptive_soundscape/audio/factory.py
@@ -40,11 +41,16 @@ src/adaptive_soundscape/core/events.py
 src/adaptive_soundscape/transition/__init__.py
 src/adaptive_soundscape/transition/controller.py
 src/adaptive_soundscape/ui/__init__.py
+src/adaptive_soundscape/ui/album_manager.py
 src/adaptive_soundscape/ui/category_editor.py
+src/adaptive_soundscape/ui/home_page.py
 src/adaptive_soundscape/ui/inference_toast.py
 src/adaptive_soundscape/ui/main_window.py
+src/adaptive_soundscape/ui/settings_page.py
 src/adaptive_soundscape/ui/tray.py
+src/adaptive_soundscape/ui/upload_page.py
 src/adaptive_soundscape/ui/widgets.py
+tests/test_album.py
 tests/test_asset_generator.py
 tests/test_audio_factory.py
 tests/test_audio_loader.py
