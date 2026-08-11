@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,
+    QPushButton,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -85,6 +86,20 @@ QFrame#descBox {{
     border-radius: {px(10, 6)};
     padding: {px(14, 8)} {px(18, 10)};
 }}
+QPushButton#classifyBtn {{
+    background-color: #2a2a36;
+    border: 2px solid #555566;
+    border-radius: {px(14, 8)};
+    padding: {px(6, 4)} {px(14, 10)};
+    color: #b0b0be;
+    font-size: {px(11, 9)};
+    font-weight: 600;
+}}
+QPushButton#classifyBtn:hover {{
+    border-color: #5b8def;
+    color: #ccd8f8;
+    background-color: rgba(91, 141, 239, 0.16);
+}}
 """
     return f"""
 QWidget#homePage {{
@@ -132,6 +147,20 @@ QFrame#descBox {{
     border: 1px solid #d0d0d8;
     border-radius: {px(10, 6)};
     padding: {px(14, 8)} {px(18, 10)};
+}}
+QPushButton#classifyBtn {{
+    background-color: #eaeaef;
+    border: 2px solid #c0c0cc;
+    border-radius: {px(14, 8)};
+    padding: {px(6, 4)} {px(14, 10)};
+    color: #686878;
+    font-size: {px(11, 9)};
+    font-weight: 600;
+}}
+QPushButton#classifyBtn:hover {{
+    border-color: #3d6fd4;
+    color: #3d6fd4;
+    background-color: rgba(61, 111, 212, 0.10);
 }}
 """
 
@@ -650,6 +679,7 @@ class HomePage(QWidget):
     """Landing / dashboard page with start button and live focus status."""
 
     action_toggled = pyqtSignal(bool)  # True=start, False=stop
+    classify_requested = pyqtSignal()  # user wants to classify current window
 
     # Design reference for responsive layout (content area ~590×520 at min window)
     _REF_W = 590.0
@@ -739,6 +769,15 @@ class HomePage(QWidget):
         self._music_detail.setWordWrap(True)
         self._status_layout.addWidget(self._music_detail)
 
+        # "Classification wrong?" button — subtle, below the music detail
+        self._classify_btn = QPushButton("\u26a0\ufe0f  Classification wrong?")
+        self._classify_btn.setObjectName("classifyBtn")
+        self._classify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._classify_btn.setFixedWidth(200)
+        self._classify_btn.clicked.connect(lambda: self.classify_requested.emit())
+        self._classify_btn.setVisible(False)
+        self._status_layout.addWidget(self._classify_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
         self._top_stack.addWidget(status_w)  # index 1
 
         self._root.addWidget(self._top_stack, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -800,9 +839,9 @@ class HomePage(QWidget):
         self._status_layout.setSpacing(max(4, int(round(8 * scale))))
 
         top_h = max(64, int(round(80 * scale)))
-        # Running status can wrap music detail — give a bit more room when scaled up
+        # Running status needs room for focus bar + theme + music detail + classify btn
         if self._running:
-            top_h = max(top_h, int(round(110 * scale)))
+            top_h = max(top_h, int(round(170 * scale)))
         self._top_stack.setFixedHeight(top_h)
 
         btn = max(160, int(round(self._BTN_DESIGN * scale)))
@@ -988,6 +1027,7 @@ class HomePage(QWidget):
         else:
             self._eq_ring.stop_ring("START")
             self._top_stack.setCurrentIndex(0)
+            self._classify_btn.setVisible(False)
         self._apply_layout_scale(force=True)
 
     def set_frequency_bands(self, bands: list[float]) -> None:
@@ -997,6 +1037,14 @@ class HomePage(QWidget):
     def set_waveform_smoothness(self, value: float) -> None:
         """Forward Settings slider (0–1) to the EQ ring."""
         self._eq_ring.set_smoothness(value)
+
+    def set_classify_available(self, available: bool) -> None:
+        """Show/hide the 'Classification wrong?' button."""
+        visible = available and self._running
+        if self._classify_btn.isVisible() == visible:
+            return
+        self._classify_btn.setVisible(visible)
+        self._apply_layout_scale(force=True)
 
     def update_status(
         self,
