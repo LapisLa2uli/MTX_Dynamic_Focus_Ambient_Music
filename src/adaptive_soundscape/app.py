@@ -41,7 +41,6 @@ from adaptive_soundscape.core.events import (
 from adaptive_soundscape.transition.controller import TransitionController
 from adaptive_soundscape.ui.album_manager import AlbumManagerDialog
 from adaptive_soundscape.ui.category_editor import CategoryEditorDialog
-from adaptive_soundscape.ui.inference_toast import InferenceToast
 from adaptive_soundscape.ui.main_window import MainWindow
 from adaptive_soundscape.ui.settings_page import DEFAULT_STATUS_COLORS, SettingsPage
 
@@ -95,7 +94,7 @@ class AdaptiveSoundscapeApp:
 
         self.user_mappings = load_user_mappings()
         self.inferer = ContextInferer(self.user_mappings)
-        self._toast = InferenceToast()
+        self._toast = self.window.inference_toast
         self._prompted_processes: set[str] = set()
         self._dismissed_processes: set[str] = set()
         self._last_process_key = ""
@@ -134,6 +133,7 @@ class AdaptiveSoundscapeApp:
         sp.volume_changed.connect(self._on_volume_changed)
         sp.threshold_changed.connect(self._on_sensitivity)
         sp.waveform_smoothness_changed.connect(self._on_waveform_smoothness_changed)
+        sp.aurora_brightness_gain_changed.connect(self._on_aurora_brightness_gain_changed)
         sp.main_theme_changed.connect(self._on_main_theme_changed)
         sp.categories_requested.connect(self._open_category_editor)
         sp.quit_requested.connect(QApplication.instance().quit)
@@ -147,6 +147,7 @@ class AdaptiveSoundscapeApp:
         if self._ui_prefs.status_colors:
             self._status_colors.update(self._ui_prefs.status_colors)
         self._waveform_smoothness = float(self._ui_prefs.waveform_smoothness)
+        self._aurora_brightness_gain = float(self._ui_prefs.aurora_brightness_gain)
         self._apply_ui_preferences()
 
         qt_app = QApplication.instance()
@@ -189,6 +190,7 @@ class AdaptiveSoundscapeApp:
                 dark_mode=self.window.is_dark_mode,
                 main_theme=self._main_theme,
                 waveform_smoothness=self._waveform_smoothness,
+                aurora_brightness_gain=self._aurora_brightness_gain,
                 status_colors=dict(self._status_colors),
             )
             save_ui_preferences(prefs)
@@ -202,6 +204,8 @@ class AdaptiveSoundscapeApp:
         sp.set_status_colors(dict(self._status_colors))
         sp.set_waveform_smoothness(self._waveform_smoothness)
         self.window.home_page.set_waveform_smoothness(self._waveform_smoothness)
+        sp.set_aurora_brightness_gain(self._aurora_brightness_gain)
+        self.window.home_page.set_aurora_brightness_gain(self._aurora_brightness_gain)
         self.window._set_dark_mode(bool(self._ui_prefs.dark_mode))
         sp.set_dark_mode(bool(self._ui_prefs.dark_mode))
 
@@ -349,6 +353,11 @@ class AdaptiveSoundscapeApp:
         self.window.home_page.set_waveform_smoothness(self._waveform_smoothness)
         self._persist_user_state()
 
+    def _on_aurora_brightness_gain_changed(self, value: float) -> None:
+        self._aurora_brightness_gain = float(value)
+        self.window.home_page.set_aurora_brightness_gain(self._aurora_brightness_gain)
+        self._persist_user_state()
+
     def _on_dark_mode_changed(self, enabled: bool) -> None:
         del enabled
         self._persist_user_state()
@@ -363,6 +372,7 @@ class AdaptiveSoundscapeApp:
         self._main_theme = "unknown"
         self._status_colors = dict(DEFAULT_STATUS_COLORS)
         self._waveform_smoothness = SettingsPage.DEFAULT_WAVEFORM_SMOOTHNESS
+        self._aurora_brightness_gain = SettingsPage.DEFAULT_AURORA_BRIGHTNESS_GAIN
         self.window.settings_page.set_volume(defaults.audio.master_volume)
         self.window.settings_page.set_threshold(defaults.cognitive.sensitivity)
         self.window.settings_page.set_waveform_smoothness(
@@ -370,6 +380,12 @@ class AdaptiveSoundscapeApp:
         )
         self.window.home_page.set_waveform_smoothness(
             SettingsPage.DEFAULT_WAVEFORM_SMOOTHNESS
+        )
+        self.window.settings_page.set_aurora_brightness_gain(
+            SettingsPage.DEFAULT_AURORA_BRIGHTNESS_GAIN
+        )
+        self.window.home_page.set_aurora_brightness_gain(
+            SettingsPage.DEFAULT_AURORA_BRIGHTNESS_GAIN
         )
         self.window.settings_page.set_main_theme("unknown")
         self.window.settings_page.set_status_colors(dict(DEFAULT_STATUS_COLORS))

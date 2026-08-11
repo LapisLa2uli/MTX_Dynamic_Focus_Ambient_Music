@@ -22,9 +22,9 @@ class PrivacyConfig(BaseModel):
 
 
 class ContextConfig(BaseModel):
-    dwell_seconds_min: int = 8
-    dwell_seconds_max: int = 30
-    default_dwell_seconds: int = 15
+    dwell_seconds_min: int = 3
+    dwell_seconds_max: int = 8
+    default_dwell_seconds: int = 5
 
 
 class TransitionConfig(BaseModel):

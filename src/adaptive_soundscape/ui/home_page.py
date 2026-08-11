@@ -258,6 +258,7 @@ class EqRingWidget(QWidget):
         self._hovered = False
         self._pressed = False
         self._active = False
+        self._ambient = QColor(180, 190, 210)
         self._smooth: list[float] = [0.0] * self.N_BARS
         self._targets: list[float] = [0.0] * self.N_BARS
         self._display: list[float] = [0.0] * self.N_BARS
@@ -267,6 +268,20 @@ class EqRingWidget(QWidget):
         self._timer.timeout.connect(self._tick)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setMouseTracking(True)
+
+    def set_ambient_tint(self, color: QColor) -> None:
+        """Tint the frosted glass from the aurora colour behind the button."""
+        if not color.isValid():
+            return
+        if (
+            color.red() == self._ambient.red()
+            and color.green() == self._ambient.green()
+            and color.blue() == self._ambient.blue()
+        ):
+            return
+        self._ambient = QColor(color)
+        self.update()
 
     def _geom(self) -> tuple[float, float, float, float]:
         """Return (cx, cy, radius, ring_extent) from current widget size."""
@@ -473,20 +488,37 @@ class EqRingWidget(QWidget):
                 ring_path.lineTo(*pt)
             ring_path.closeSubpath()
 
-            # Radial gradient fill — bright red at inner edge, fading outward
+            # Radial gradient fill — theme colour (eases with work-type aurora)
+            theme = self._ambient
+            h, s, v, _a = theme.getHsvF()
+            if h < 0:
+                h = 0.0
+            s = min(1.0, max(0.35, s * 1.15 + 0.1))
+            v = min(1.0, max(0.55, v * 1.1 + 0.08))
+
+            def _tint(sat: float, val: float, alpha: int) -> QColor:
+                c = QColor()
+                c.setHsvF(h, min(1.0, sat), min(1.0, val), 1.0)
+                c.setAlpha(alpha)
+                return c
+
             grad = QRadialGradient(cx, cy, r + ext)
-            grad.setColorAt(r / (r + ext), QColor(255, 60, 40, 200))
-            grad.setColorAt((r + ext * 0.5) / (r + ext), QColor(255, 100, 60, 120))
-            grad.setColorAt(1.0, QColor(255, 140, 80, 20))
+            grad.setColorAt(r / (r + ext), _tint(s, v, 200))
+            grad.setColorAt((r + ext * 0.5) / (r + ext), _tint(s * 0.85, v * 0.95, 120))
+            grad.setColorAt(1.0, _tint(s * 0.55, v * 0.85, 20))
 
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(grad)
             p.drawPath(ring_path)
 
             # Bright outer contour line — closed loop
-            outline_pen = QPen(QColor(255, 80, 50, 160), max(1.0, 1.5 * scale),
-                               Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap,
-                               Qt.PenJoinStyle.RoundJoin)
+            outline_pen = QPen(
+                _tint(s, min(1.0, v * 1.05), 165),
+                max(1.0, 1.5 * scale),
+                Qt.PenStyle.SolidLine,
+                Qt.PenCapStyle.RoundCap,
+                Qt.PenJoinStyle.RoundJoin,
+            )
             p.setPen(outline_pen)
             p.setBrush(Qt.BrushStyle.NoBrush)
             # draw outer edge as a closed polygon
@@ -531,97 +563,87 @@ class EqRingWidget(QWidget):
     def _paint_liquid_glass(
         self, p: QPainter, cx: float, cy: float, r: float, scale: float = 1.0
     ) -> None:
-        """Frosted translucent orb with specular highlight and soft rim."""
-        p.save()
-        clip = QPainterPath()
-        clip.addEllipse(cx - r, cy - r, r * 2, r * 2)
-        p.setClipPath(clip)
+        """Flat translucent glass pane — frosted disk, not a spherical orb."""
+        amb = self._ambient
+        hover = self._hovered and not self._pressed
+        press = self._pressed
+        shine_a = 14 if hover else 0
+        press_dim = 10 if press else 0
 
-        hover_boost = 18 if self._hovered and not self._pressed else 0
-        press_dim = 25 if self._pressed else 0
-        a_boost = hover_boost - press_dim
-
-        if self._running:
-            # Warm red glass
-            c_hi = QColor(255, 170, 155, 105 + a_boost)
-            c_mid = QColor(220, 90, 85, 48 + a_boost // 2)
-            c_lo = QColor(150, 45, 55, 95 + a_boost)
-            rim = QColor(255, 200, 190, 140)
-            edge = QColor(120, 40, 50, 160)
-        else:
-            # Cool blue glass
-            c_hi = QColor(195, 230, 255, 110 + a_boost)
-            c_mid = QColor(110, 175, 240, 45 + a_boost // 2)
-            c_lo = QColor(55, 115, 200, 90 + a_boost)
-            rim = QColor(220, 240, 255, 150)
-            edge = QColor(60, 110, 180, 150)
-
-        # Body — vertical translucent wash
         body = QPainterPath()
         body.addEllipse(cx - r, cy - r, r * 2, r * 2)
-        body_grad = QLinearGradient(cx, cy - r, cx, cy + r)
-        body_grad.setColorAt(0.0, c_hi)
-        body_grad.setColorAt(0.42, c_mid)
-        body_grad.setColorAt(1.0, c_lo)
+
+        # Soft ambient bloom around the rim (flat pane catch-light, not a lens orb)
+        bloom_r = r * 1.18
+        bloom = QRadialGradient(cx, cy, bloom_r)
+        bloom_a = max(0, 28 + shine_a // 2 - press_dim)
+        bloom.setColorAt(0.72, QColor(amb.red(), amb.green(), amb.blue(), 0))
+        bloom.setColorAt(0.9, QColor(amb.red(), amb.green(), amb.blue(), bloom_a))
+        bloom.setColorAt(1.0, QColor(amb.red(), amb.green(), amb.blue(), 0))
         p.setPen(Qt.PenStyle.NoPen)
-        p.fillPath(body, body_grad)
+        p.setBrush(bloom)
+        p.drawEllipse(QRectF(cx - bloom_r, cy - bloom_r, bloom_r * 2, bloom_r * 2))
 
-        # Soft radial depth (center clearer, rim denser — liquid lens)
-        depth = QRadialGradient(cx, cy - r * 0.15, r * 1.05)
-        depth.setColorAt(0.0, QColor(255, 255, 255, 55 + hover_boost // 2))
-        depth.setColorAt(0.55, QColor(255, 255, 255, 8))
-        depth.setColorAt(1.0, QColor(0, 0, 0, 35 + press_dim // 2))
-        p.fillPath(body, depth)
+        p.save()
+        p.setClipPath(body)
 
-        # Specular highlight — elongated top sheen
-        shine = QPainterPath()
-        shine.addEllipse(
-            cx - r * 0.62,
-            cy - r * 0.78,
-            r * 1.24,
-            r * 0.72,
-        )
-        shine_grad = QLinearGradient(cx, cy - r * 0.85, cx, cy - r * 0.05)
-        shine_grad.setColorAt(0.0, QColor(255, 255, 255, 150 if self._hovered else 115))
-        shine_grad.setColorAt(0.45, QColor(255, 255, 255, 35))
-        shine_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
-        p.fillPath(shine, shine_grad)
+        # Even frost plate — mostly uniform so it reads as a pane, not a bulb
+        frost = QLinearGradient(cx, cy - r, cx, cy + r)
+        frost.setColorAt(0.0, QColor(255, 255, 255, 58 + shine_a))
+        frost.setColorAt(0.35, QColor(235, 238, 245, 32 + shine_a // 2))
+        frost.setColorAt(0.7, QColor(210, 216, 228, 36 + press_dim // 2))
+        frost.setColorAt(1.0, QColor(190, 198, 210, 44 + press_dim))
+        p.fillPath(body, frost)
 
-        # Thin bright crescent near the top rim
-        o_inset = 3.0 * scale
-        i_inset_x = 10.0 * scale
-        i_inset_y = 14.0 * scale
-        outer = QPainterPath()
-        outer.addEllipse(
-            cx - r + o_inset,
-            cy - r + o_inset,
-            (r - o_inset) * 2,
-            (r - o_inset) * 2,
+        # Ambient tint wash (flat overlay)
+        amb_a = max(0, 36 + shine_a // 2 - press_dim)
+        p.fillPath(
+            body,
+            QColor(amb.red(), amb.green(), amb.blue(), amb_a),
         )
-        inner = QPainterPath()
-        inner.addEllipse(
-            cx - r + i_inset_x,
-            cy - r + i_inset_y,
-            (r - i_inset_x) * 2,
-            (r - 8.0 * scale) * 2,
-        )
-        crescent = outer.subtracted(inner)
-        p.fillPath(crescent, QColor(255, 255, 255, 70 if self._hovered else 45))
+
+        # Subtle start/stop cue
+        if self._running:
+            p.fillPath(body, QColor(255, 120, 100, 18 + press_dim // 2))
+        else:
+            p.fillPath(body, QColor(140, 190, 255, 14 + press_dim // 2))
+
+        # Thin top-edge specular band (glass pane highlight, not a sphere sheen)
+        band = QPainterPath()
+        band.addEllipse(cx - r, cy - r, r * 2, r * 2)
+        band_clip = QPainterPath()
+        band_clip.addRect(cx - r, cy - r, r * 2, r * 0.42)
+        band = band.intersected(band_clip)
+        band_grad = QLinearGradient(cx, cy - r, cx, cy - r * 0.15)
+        top_a = 95 if hover else 70
+        band_grad.setColorAt(0.0, QColor(255, 255, 255, top_a))
+        band_grad.setColorAt(0.55, QColor(255, 255, 255, 28))
+        band_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
+        p.fillPath(band, band_grad)
+
+        # Soft inner edge darkening — shallow, keeps the pane flat
+        edge = QRadialGradient(cx, cy, r)
+        edge.setColorAt(0.0, QColor(0, 0, 0, 0))
+        edge.setColorAt(0.82, QColor(0, 0, 0, 0))
+        edge.setColorAt(1.0, QColor(12, 14, 20, 28 + press_dim))
+        p.fillPath(body, edge)
 
         p.restore()
 
-        # Outer glass rim (drawn outside clip so AA stays clean)
-        rim_pen = QPen(rim, max(1.2, 2.2 * scale))
-        rim_pen.setCosmetic(True)
+        # Thin bright rim — glass edge, not a soft spherical halo
+        rim_light = QColor(255, 255, 255, 130 if hover else 105)
+        rim_pen = QPen(rim_light, max(1.0, 1.4 * scale))
         p.setPen(rim_pen)
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawEllipse(QRectF(cx - r + 1.0 * scale, cy - r + 1.0 * scale,
-                             (r - 1.0 * scale) * 2, (r - 1.0 * scale) * 2))
+        inset = 0.6 * scale
+        p.drawEllipse(
+            QRectF(cx - r + inset, cy - r + inset, (r - inset) * 2, (r - inset) * 2)
+        )
 
-        edge_pen = QPen(edge, max(1.0, 1.4 * scale))
-        p.setPen(edge_pen)
-        p.drawEllipse(QRectF(cx - r + 0.5 * scale, cy - r + 0.5 * scale,
-                             (r - 0.5 * scale) * 2, (r - 0.5 * scale) * 2))
+        rim_outer = QColor(amb.red(), amb.green(), amb.blue(), 55)
+        outer_pen = QPen(rim_outer, max(1.0, 1.2 * scale))
+        p.setPen(outer_pen)
+        p.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
 
 
 class HomePage(QWidget):
@@ -633,6 +655,8 @@ class HomePage(QWidget):
     _REF_W = 590.0
     _REF_H = 520.0
     _BTN_DESIGN = 220
+    _BLOB_MIN = 4
+    _BLOB_MAX = 14
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -643,7 +667,12 @@ class HomePage(QWidget):
         self._layout_scale = 1.0
         self._aurora_color = QColor(DEFAULT_STATUS_COLORS["unknown"])
         self._aurora_target = QColor(self._aurora_color)
-        self._blobs = self._make_blobs(seed=7)
+        self._focus_level = 0.0
+        self._focus_target = 0.0
+        self._aurora_brightness_gain = 1.5
+        self._blob_count_f = float(self._BLOB_MIN)
+        self._blob_rng = Random(7)
+        self._blobs = self._make_blobs(self._BLOB_MAX, seed=7)
         self._aurora_timer = QTimer(self)
         self._aurora_timer.timeout.connect(self._tick_aurora)
         self._aurora_timer.start(33)  # ~30 fps drift — soft screensaver pace
@@ -792,17 +821,17 @@ class HomePage(QWidget):
     # ── Aurora background ───────────────────────────────────────
 
     @staticmethod
-    def _make_blobs(seed: int = 7) -> list[_AuroraBlob]:
+    def _make_blobs(count: int, seed: int = 7) -> list[_AuroraBlob]:
         rng = Random(seed)
         blobs: list[_AuroraBlob] = []
-        for _ in range(6):
+        for _ in range(count):
             blobs.append(
                 _AuroraBlob(
                     x=rng.uniform(0.1, 0.9),
                     y=rng.uniform(0.1, 0.9),
                     vx=rng.uniform(-0.012, 0.012),
                     vy=rng.uniform(-0.010, 0.010),
-                    radius=rng.uniform(0.28, 0.52),
+                    radius=rng.uniform(0.22, 0.48),
                     phase=rng.uniform(0.0, 2.0 * pi),
                     speed=rng.uniform(0.25, 0.55),
                     hue_shift=rng.uniform(-18.0, 18.0),
@@ -812,12 +841,26 @@ class HomePage(QWidget):
             )
         return blobs
 
+    def _target_blob_count(self) -> float:
+        """Focus raises how many flowing orbs are present (min → max)."""
+        span = float(self._BLOB_MAX - self._BLOB_MIN)
+        return self._BLOB_MIN + self._focus_level * span
+
     def set_aurora_color(self, hex_color: str) -> None:
         """Retarget aurora blobs to the active task / status colour (soft ease)."""
         c = QColor(hex_color)
         if not c.isValid():
             return
         self._aurora_target = c
+
+    def set_aurora_brightness_gain(self, value: float) -> None:
+        """How strongly focus brightens the flowing lights (0–3)."""
+        self._aurora_brightness_gain = max(0.0, min(3.0, float(value)))
+        self.update()
+
+    def _aurora_brightness(self) -> float:
+        """Multiplier applied to blob / wash alphas from focus × gain."""
+        return 1.0 + self._focus_level * self._aurora_brightness_gain
 
     def _tick_aurora(self) -> None:
         # Ease theme colour (fast enough to feel responsive on context change)
@@ -827,8 +870,24 @@ class HomePage(QWidget):
             int(cur.green() + (tgt.green() - cur.green()) * 0.12),
             int(cur.blue() + (tgt.blue() - cur.blue()) * 0.12),
         )
+        # Ease focus-driven brightness + orb count
+        idle_target = self._focus_target if self._running else 0.0
+        self._focus_level += (idle_target - self._focus_level) * 0.1
+        count_target = self._target_blob_count()
+        prev_count = self._blob_count_f
+        self._blob_count_f += (count_target - self._blob_count_f) * 0.08
+        # Respawn newly appearing orbs so they fade in from fresh positions
+        for i, blob in enumerate(self._blobs):
+            if self._blob_count_f > i >= prev_count:
+                blob.x = self._blob_rng.uniform(0.08, 0.92)
+                blob.y = self._blob_rng.uniform(0.08, 0.92)
+                blob.phase = self._blob_rng.uniform(0.0, 2.0 * pi)
+
+        self._eq_ring.set_ambient_tint(self._aurora_color)
+
         dt = 0.033
-        for blob in self._blobs:
+        visible_ceil = min(len(self._blobs), int(self._blob_count_f) + 1)
+        for blob in self._blobs[:visible_ceil]:
             blob.phase += blob.speed * dt
             # Soft horizontal drift + vertical sine sway (aurora curtains)
             blob.x += blob.vx * dt * 8.0
@@ -846,6 +905,7 @@ class HomePage(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = max(self.width(), 1), max(self.height(), 1)
+        bright = self._aurora_brightness()
 
         if self._dark:
             base = QColor(0x1A, 0x1A, 0x1E)
@@ -853,21 +913,29 @@ class HomePage(QWidget):
             base = QColor(0xF5, 0xF5, 0xF8)
         p.fillRect(self.rect(), base)
 
+        def _scaled_alpha(a: int) -> int:
+            return int(min(255, max(0, round(a * bright))))
+
         # Subtle vertical wash so blobs feel layered in depth
         wash = QLinearGradient(0, 0, 0, h)
         theme = QColor(self._aurora_color)
         if self._dark:
-            wash.setColorAt(0.0, QColor(theme.red(), theme.green(), theme.blue(), 22))
-            wash.setColorAt(0.55, QColor(theme.red(), theme.green(), theme.blue(), 8))
+            wash.setColorAt(0.0, QColor(theme.red(), theme.green(), theme.blue(), _scaled_alpha(22)))
+            wash.setColorAt(0.55, QColor(theme.red(), theme.green(), theme.blue(), _scaled_alpha(8)))
             wash.setColorAt(1.0, QColor(0, 0, 0, 40))
         else:
-            wash.setColorAt(0.0, QColor(theme.red(), theme.green(), theme.blue(), 28))
-            wash.setColorAt(0.6, QColor(theme.red(), theme.green(), theme.blue(), 10))
+            wash.setColorAt(0.0, QColor(theme.red(), theme.green(), theme.blue(), _scaled_alpha(28)))
+            wash.setColorAt(0.6, QColor(theme.red(), theme.green(), theme.blue(), _scaled_alpha(10)))
             wash.setColorAt(1.0, QColor(255, 255, 255, 0))
         p.fillRect(self.rect(), wash)
 
         scale = float(min(w, h))
-        for blob in self._blobs:
+        for i, blob in enumerate(self._blobs):
+            # Soft per-orb fade as focus raises / lowers the count
+            presence = max(0.0, min(1.0, self._blob_count_f - i))
+            if presence <= 0.01:
+                continue
+
             pulse = 0.85 + 0.15 * sin(blob.phase)
             rad = blob.radius * scale * pulse
             cx = blob.x * w
@@ -879,12 +947,14 @@ class HomePage(QWidget):
                 h_deg = 0.0
             h_deg = (h_deg + blob.hue_shift / 360.0) % 1.0
             s = min(1.0, max(0.0, s * blob.sat_scale + (0.15 if self._dark else 0.05)))
-            v = min(1.0, v * (1.05 if self._dark else 0.92))
+            # Focus lifts luminance of the flowing lights
+            v_boost = 1.0 + 0.35 * self._focus_level * self._aurora_brightness_gain
+            v = min(1.0, v * (1.05 if self._dark else 0.92) * v_boost)
             c.setHsvF(h_deg, s, v)
 
             alpha = blob.alpha if self._dark else int(blob.alpha * 0.55)
             breath = 0.75 + 0.25 * sin(blob.phase * 0.7)
-            alpha = int(alpha * breath)
+            alpha = _scaled_alpha(int(alpha * breath * presence))
 
             grad = QRadialGradient(cx, cy, rad)
             grad.setColorAt(0.0, QColor(c.red(), c.green(), c.blue(), alpha))
@@ -942,6 +1012,7 @@ class HomePage(QWidget):
             context.value, DEFAULT_STATUS_COLORS["unknown"]
         )
         self.set_aurora_color(color)
+        self._focus_target = max(0.0, min(1.0, float(focus_score)))
 
         if not self._running:
             return

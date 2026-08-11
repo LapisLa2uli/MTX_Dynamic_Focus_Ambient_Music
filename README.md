@@ -337,7 +337,7 @@ audio:
   godot_port: 8765
 
 context:
-  default_dwell_seconds: 45     # seconds before context label changes
+  default_dwell_seconds: 5     # seconds before context label changes
 
 transition:
   deep_focus_crossfade_seconds: 12.0

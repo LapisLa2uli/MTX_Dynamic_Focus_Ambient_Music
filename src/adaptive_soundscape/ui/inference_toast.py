@@ -1,10 +1,9 @@
-"""Bottom-right toast for confirming inferred misc-window classifications."""
+"""In-window panel for confirming inferred misc-window classifications."""
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -55,13 +54,52 @@ QPushButton:hover { background-color: #3d3d46; }
 QPushButton#confirmBtn:hover { background-color: #4a6ea8; }
 """
 
+LIGHT_TOAST_STYLE = """
+QWidget#inferenceToast {
+    background-color: #ffffff;
+    color: #1a1a1e;
+    border: 1px solid #c0c0c8;
+    border-radius: 10px;
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 12px;
+}
+QLabel#toastTitle {
+    font-size: 13px;
+    font-weight: 700;
+}
+QLabel#toastMeta {
+    color: #686878;
+}
+QComboBox {
+    background-color: #f5f5f8;
+    border: 1px solid #c0c0c8;
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: #1a1a1e;
+}
+QPushButton {
+    background-color: #e0e0e5;
+    border: 1px solid #c0c0c8;
+    border-radius: 6px;
+    padding: 6px 12px;
+    color: #1a1a1e;
+}
+QPushButton#confirmBtn {
+    background-color: #3a5a8c;
+    border-color: #5b8def;
+    color: #e8e8ec;
+}
+QPushButton:hover { background-color: #d0d0d8; }
+QPushButton#confirmBtn:hover { background-color: #4a6ea8; }
+"""
+
 
 def _label_for(ctx: WorkContext) -> str:
     return ctx.value.replace("_", " ").title()
 
 
 class InferenceToast(QWidget):
-    """Non-modal corner notice: confirm or correct an inferred category."""
+    """Non-modal in-app notice: confirm or correct an inferred category."""
 
     confirmed = pyqtSignal(str, str, object)  # process, title, WorkContext
     dismissed = pyqtSignal(str)  # process key
@@ -69,18 +107,16 @@ class InferenceToast(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("inferenceToast")
-        self.setWindowFlags(
-            Qt.WindowType.Tool
-            | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        # Child overlay — stays inside the main window (not a separate popup).
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(TOAST_STYLE)
         self.setFixedWidth(340)
+        self.hide()
 
         self._process = ""
         self._title = ""
         self._process_key = ""
+        self._dark = True
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 12, 14, 12)
@@ -121,6 +157,19 @@ class InferenceToast(QWidget):
 
         self._confirm_btn.clicked.connect(self._on_confirm)
         self._dismiss_btn.clicked.connect(self._on_dismiss)
+
+        if parent is not None:
+            parent.installEventFilter(self)
+
+    def set_dark_mode(self, enabled: bool) -> None:
+        self._dark = enabled
+        self.setStyleSheet(TOAST_STYLE if enabled else LIGHT_TOAST_STYLE)
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        if watched is self.parentWidget() and event.type() == QEvent.Type.Resize:
+            if self.isVisible():
+                self._reposition()
+        return super().eventFilter(watched, event)
 
     def show_inference(
         self,
@@ -163,15 +212,15 @@ class InferenceToast(QWidget):
         return self.isVisible() and self._process_key == _process_key(process_name)
 
     def _reposition(self) -> None:
-        screen = QApplication.primaryScreen()
-        if screen is None:
+        parent = self.parentWidget()
+        if parent is None:
             return
-        geo = screen.availableGeometry()
+        self.adjustSize()
         margin = 16
-        self.move(
-            geo.right() - self.width() - margin,
-            geo.bottom() - self.height() - margin,
-        )
+        # Sit above the status line area inside the content host.
+        x = max(margin, parent.width() - self.width() - margin)
+        y = max(margin, parent.height() - self.height() - margin)
+        self.move(x, y)
 
     def _on_confirm(self) -> None:
         raw = self._combo.currentData()

@@ -295,7 +295,7 @@ Adaptive Cognitive Soundscape面向程序员、研究者、设计师、阅读写
 
 \begin{enumerate}
 \item \textbf{用户活动监测器（User Activity Monitor）}：在Windows平台上通过OS级钩子采集前台进程名、窗口标题（可选）、键盘与鼠标\textbf{事件计数}（不含按键内容）、窗口切换频率、空闲时长与任务持续时长。输入速率$i$、切换速率$\sigma$、空闲比例$\delta$与CPU负载$\kappa$被归一化至$[0,1]$，形成行为特征向量。
-\item \textbf{情境分类器（Context Classifier）}：采用\textbf{基于规则的启发式分类}，将\textbf{前台进程名}与\textbf{窗口标题}（均为可选采集的元数据，不含按键内容）映射至六类工作情境——编程/工程、团队/截止期协作、阅读/写作、科学/数学工作、创意设计、分心状态——并输出置信度$\gamma$。分类器\textbf{不}使用键鼠计数、CPU 或空闲时长；后者仅用于认知估计。对未命中内置词典的“杂项/unknown”窗口，轻量\texttt{ContextInferer}基于种子词表与词元重叠给出候选情境；系统在屏幕右下角弹出确认条，用户可确认或纠正并写入本地\texttt{user\_context\_mappings.json}。用户亦可在界面中按类别配置进程名与标题关键词。新情境须持续\textbf{驻留$T_d$}（默认 8--30\,s，随$\gamma$自适应，可配置）方被采纳，并对短暂 \texttt{unknown} 标签设置宽限，以抑制抖动。
+\item \textbf{情境分类器（Context Classifier）}：采用\textbf{基于规则的启发式分类}，将\textbf{前台进程名}与\textbf{窗口标题}（均为可选采集的元数据，不含按键内容）映射至六类工作情境——编程/工程、团队/截止期协作、阅读/写作、科学/数学工作、创意设计、分心状态——并输出置信度$\gamma$。分类器\textbf{不}使用键鼠计数、CPU 或空闲时长；后者仅用于认知估计。对未命中内置词典的“杂项/unknown”窗口，轻量\texttt{ContextInferer}基于种子词表与词元重叠给出候选情境；系统在主窗口内弹出确认面板，用户可确认或纠正并写入本地\texttt{user\_context\_mappings.json}。用户亦可在界面中按类别配置进程名与标题关键词。新情境须持续\textbf{驻留$T_d$}（默认 3--8\,s，中心约 5\,s，随$\gamma$自适应，可配置）方被采纳，并对短暂 \texttt{unknown} 标签设置宽限，以抑制抖动。
 \item \textbf{认知状态估计器（Cognitive State Estimator）}：避免二元“专注/分心”逻辑，输出连续\textbf{专注分数} $F\in[0,1]$及六种离散状态：深度专注、轻度分心、过度刺激、疲劳、平静生产力、心流。估计融合输入节律一致性、应用切换熵、空闲模式、任务持续性及情境先验，并经指数移动平均（平滑系数$\alpha=0.85$）滤波。
 \item \textbf{自适应音乐引擎（Adaptive Music Engine）}：实现为可插拔的\texttt{AudioBackend}接口，并由\texttt{MusicDirector}统一调度。情境决定专辑；专辑内随机选择一首\textbf{歌曲族}；该歌曲内按专注分数$F$在\texttt{calm}/\texttt{focus}/\texttt{deep\_focus}/\texttt{recovery}预生成循环间切换（迟滞阈值与最短驻留防抖）。（A）\textbf{占位混音器}（\texttt{PlaceholderMixer}，默认）——NumPy+\texttt{sounddevice}路径级等功率交叉淡化；（B）\textbf{Godot 4侧载}——TCP JSON控制\texttt{AudioStreamPlayer}。四层stem的声学角色为：
 \begin{itemize}
@@ -367,7 +367,7 @@ CPU 占用率 & \texttt{psutil.cpu\_percent} & \textbf{认知估计}：归一化
 
 \paragraph{浏览器与分心判定的特殊规则。}与早期“浏览器即分心”的简化假设不同，当前实现\textbf{不因}进程为 Chrome/Edge/Firefox 而直接判为 \texttt{distraction}。分心类别要求窗口标题中出现表~\ref{tab:context-detection} 所列娱乐/社交类关键词；若标题同时匹配\textbf{工作类浏览器关键词}（如 \texttt{github}、\texttt{stackoverflow}、\texttt{documentation}、\texttt{jira}、\texttt{localhost} 等），则\textbf{抑制}分心得分。当浏览器标签页仅含分心关键词且得分略高于其他生产性情境时，分类器仍优先保留生产性标签（得分差 $\le 0.12$ 时不切换至 \texttt{distraction}）。若进程名与标题均未命中任何规则，则输出 \texttt{unknown}（$\gamma=0$）。
 
-\paragraph{驻留滤波与手动覆盖。}\texttt{ContextPersistence} 在候选情境连续稳定后才更新 \texttt{WorkContext}：当 $\gamma\ge 0.75$ 时 $T_d=T_{d,\min}=8$\,s；当 $\gamma\ge 0.5$ 时 $T_d=15$\,s（默认）；否则 $T_{d,\max}=30$\,s。置信度 $\gamma<0.25$ 的样本视为 \texttt{unknown}；若当前已处于某生产性情境，连续 4 个周期的 \texttt{unknown} 才允许清空标签，以避免 Alt-Tab 造成的瞬时误判。用户启用 UI \textbf{手动覆盖}时，跳过上述规则，直接采用所选情境且 $\gamma=1$。
+\paragraph{驻留滤波与手动覆盖。}\texttt{ContextPersistence} 在候选情境连续稳定后才更新 \texttt{WorkContext}：当 $\gamma\ge 0.75$ 时 $T_d=T_{d,\min}=3$\,s；当 $\gamma\ge 0.5$ 时 $T_d=5$\,s（默认）；否则 $T_{d,\max}=8$\,s。置信度 $\gamma<0.25$ 的样本视为 \texttt{unknown}；若当前已处于某生产性情境，连续 4 个周期的 \texttt{unknown} 才允许清空标签，以避免 Alt-Tab 造成的瞬时误判。用户启用 UI \textbf{手动覆盖}时，跳过上述规则，直接采用所选情境且 $\gamma=1$。
 
 \subsubsection{工程结构与运行流程}
 
@@ -462,7 +462,7 @@ Phase~1 MVP 以\textbf{单进程 Python 桌面应用}为核心：PyQt6 负责界
 \paragraph{1\,Hz 主循环。}每次 \texttt{\_tick()} 执行下列顺序（与图~\ref{fig:acs-flow} 一致）：
 \begin{enumerate}[label=\arabic*.]
 \item \textbf{采样}：\texttt{ActivityMonitor.poll()} 读取前台窗口标题、进程名、键鼠\textbf{计数}、CPU 与空闲时长，生成 \texttt{ActivitySnapshot} 并发布至总线。
-\item \textbf{情境推断}：\texttt{classify\_snapshot()} 仅依据前台\textbf{进程名}与\textbf{窗口标题}对六类工作情境及 \texttt{distraction} 打分（见表~\ref{tab:activity-snapshot}--\ref{tab:context-detection}）；\texttt{ContextPersistence} 要求新标签持续 $T_d\in[8,30]$\,s（随 $\gamma$ 自适应）才切换，并对短暂 \texttt{unknown} 设宽限。用户启用\textbf{手动覆盖}时，直接采用 UI 所选情境且置信度为 1。
+\item \textbf{情境推断}：\texttt{classify\_snapshot()} 仅依据前台\textbf{进程名}与\textbf{窗口标题}对六类工作情境及 \texttt{distraction} 打分（见表~\ref{tab:activity-snapshot}--\ref{tab:context-detection}）；\texttt{ContextPersistence} 要求新标签持续 $T_d\in[3,8]$\,s（默认 5\,s，随 $\gamma$ 自适应）才切换，并对短暂 \texttt{unknown} 设宽限。用户启用\textbf{手动覆盖}时，直接采用 UI 所选情境且置信度为 1。
 \item \textbf{认知估计}：由输入速率 $i$、切换速率 $\sigma$、空闲比 $\delta$、CPU 负载 $\kappa$ 及情境先验构成 \texttt{FocusSignals}，代入式~\eqref{eq:focus-raw}--\eqref{eq:focus-ema} 得到 $F$ 与离散 \texttt{FocusState}。
 \item \textbf{过渡决策}：\texttt{TransitionController.decide()} 结合情境变化、专注状态变化、迟滞带 $\varepsilon$ 与冷却期 $T_c$ 判断是否 \texttt{should\_transition}，并映射至 \texttt{profile\_id} 及亮度/能量/温暖度三元组。
 \item \textbf{音频执行}：若用户已 Start Audio，情境变化时\texttt{MusicDirector.set\_scenario()}换曲，并持续\texttt{update\_intensity($F$)}在歌曲族内切换强度循环；后端经\texttt{crossfade\_to\_track}做等功率交叉淡化（Godot 附\texttt{track\_path}）。
@@ -487,7 +487,7 @@ Phase~1 MVP 以\textbf{单进程 Python 桌面应用}为核心：PyQt6 负责界
 ]
     \node[flowbox] (start) {1.\ 用户启动 \texttt{python -m adaptive\_soundscape}；\\ \texttt{QTimer} 每 1\,s 调用 \texttt{AdaptiveSoundscapeApp.\_tick()}};
     \node[flowbox, below=of start] (poll) {2.\ \texttt{ActivityMonitor.poll()}：采集窗口标题、进程名、键鼠\textbf{计数}、CPU、空闲时长\\ $\rightarrow$ 发布 \texttt{ActivitySnapshot}};
-    \node[flowbox, below=of poll] (ctx) {3.\ \texttt{classify\_snapshot()}：进程名+标题规则打分；\texttt{ContextPersistence} 驻留 $T_d\in[8,30]$\,s\\ $\rightarrow$ \texttt{WorkContext}（可选手动覆盖）};
+    \node[flowbox, below=of poll] (ctx) {3.\ \texttt{classify\_snapshot()}：进程名+标题规则打分；\texttt{ContextPersistence} 驻留 $T_d\in[3,8]$\,s\\ $\rightarrow$ \texttt{WorkContext}（可选手动覆盖）};
     \node[flowbox, below=of ctx] (focus) {4.\ \texttt{FocusEstimator}：由 $i,\sigma,\delta,\kappa$ 与情境先验计算 $r$、$F$\\ $\rightarrow$ 六种 \texttt{FocusState}，发布 \texttt{FocusUpdated}};
     \node[flowbox, below=of focus] (decide) {5.\ \texttt{TransitionController.decide()}：结合冷却 $T_c$、迟滞 $\varepsilon$\\ $\rightarrow$ \texttt{profile\_id}、亮度/能量/温暖度、是否 \texttt{should\_transition}};
     \node[flowbox, below=of decide] (audio) {6.\ 若用户已 Start Audio：情境变化时 \texttt{MusicDirector.set\_scenario()}；\\ 每拍 \texttt{update\_intensity($F$)} $\rightarrow$ \texttt{crossfade\_to\_track}（Placeholder / Godot）};
@@ -553,8 +553,8 @@ $\alpha$ & EMA平滑系数 & $(0,1)$ \\
 $b_0$ & 专注分数基线偏置 & 常数 \\
 $w_i,w_\sigma,w_\delta,w_\kappa$ & 各行为特征的融合权重 & 常数 \\
 $T_d$ & 情境驻留时间阈值（随 $\gamma$ 在 $T_{d,\min}$--$T_{d,\max}$ 间自适应） & $\mathbb{R}^+$ \\
-$T_{d,\min}$ & 高置信度情境最短驻留（默认 8\,s） & $\mathbb{R}^+$ \\
-$T_{d,\max}$ & 低置信度情境最长驻留（默认 30\,s） & $\mathbb{R}^+$ \\
+$T_{d,\min}$ & 高置信度情境最短驻留（默认 3\,s） & $\mathbb{R}^+$ \\
+$T_{d,\max}$ & 低置信度情境最长驻留（默认 8\,s） & $\mathbb{R}^+$ \\
 $T_c$ & 声景过渡冷却期 & $\mathbb{R}^+$ \\
 $\varepsilon$ & 专注分数迟滞带宽度 & $\mathbb{R}^+$ \\
 $\tau_f$ & 深度专注/常规交叉淡化时长 & $\mathbb{R}^+$ \\

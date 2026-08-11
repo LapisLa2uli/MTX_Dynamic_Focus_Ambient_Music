@@ -20,6 +20,8 @@ class UiPreferences:
     dark_mode: bool = True
     main_theme: str = "unknown"
     waveform_smoothness: float = 0.35
+    # How strongly rising focus brightens the aurora lights (0–3).
+    aurora_brightness_gain: float = 1.5
     status_colors: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -27,6 +29,7 @@ class UiPreferences:
             "dark_mode": bool(self.dark_mode),
             "main_theme": str(self.main_theme),
             "waveform_smoothness": float(self.waveform_smoothness),
+            "aurora_brightness_gain": float(self.aurora_brightness_gain),
             "status_colors": dict(self.status_colors),
         }
 
@@ -42,6 +45,13 @@ class UiPreferences:
         if "waveform_smoothness" in data:
             try:
                 prefs.waveform_smoothness = float(data["waveform_smoothness"])
+            except (TypeError, ValueError):
+                pass
+        if "aurora_brightness_gain" in data:
+            try:
+                prefs.aurora_brightness_gain = max(
+                    0.0, min(3.0, float(data["aurora_brightness_gain"]))
+                )
             except (TypeError, ValueError):
                 pass
         colors = data.get("status_colors")

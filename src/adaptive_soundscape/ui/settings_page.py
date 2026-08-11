@@ -372,6 +372,7 @@ class SettingsPage(QWidget):
     volume_changed = pyqtSignal(float)
     threshold_changed = pyqtSignal(float)
     waveform_smoothness_changed = pyqtSignal(float)
+    aurora_brightness_gain_changed = pyqtSignal(float)
     main_theme_changed = pyqtSignal(str)
     quit_requested = pyqtSignal()
     reset_requested = pyqtSignal()
@@ -380,6 +381,7 @@ class SettingsPage(QWidget):
     status_colors_changed = pyqtSignal(dict)
 
     DEFAULT_WAVEFORM_SMOOTHNESS = 0.35
+    DEFAULT_AURORA_BRIGHTNESS_GAIN = 1.5
 
     def __init__(
         self,
@@ -389,6 +391,7 @@ class SettingsPage(QWidget):
         sensitivity: float = 1.0,
         main_theme: str = "unknown",
         waveform_smoothness: float = DEFAULT_WAVEFORM_SMOOTHNESS,
+        aurora_brightness_gain: float = DEFAULT_AURORA_BRIGHTNESS_GAIN,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("settingsPage")
@@ -431,6 +434,20 @@ class SettingsPage(QWidget):
         wave_hint = QLabel("Lower  →  more detailed ring ·  Higher  →  softer oval glow")
         wave_hint.setObjectName("hintLabel")
         content.addWidget(wave_hint)
+
+        self._aurora_slider, self._aurora_label = self._build_slider_row(
+            content,
+            "Aurora Brightness Gain",
+            int(round(aurora_brightness_gain * 100)),
+            0,
+            300,
+            "{:.1f}×",
+        )
+        aurora_hint = QLabel(
+            "How strongly rising focus brightens the flowing lights behind the glass"
+        )
+        aurora_hint.setObjectName("hintLabel")
+        content.addWidget(aurora_hint)
 
         # -- Section: Audio --
         content.addWidget(self._section_label("Audio"))
@@ -553,6 +570,8 @@ class SettingsPage(QWidget):
                 self.threshold_changed.emit(val / 100.0)
             elif getattr(self, "_wave_slider", None) is slider:
                 self.waveform_smoothness_changed.emit(val / 100.0)
+            elif getattr(self, "_aurora_slider", None) is slider:
+                self.aurora_brightness_gain_changed.emit(val / 100.0)
 
         slider.valueChanged.connect(_on_change)
 
@@ -603,7 +622,7 @@ class SettingsPage(QWidget):
         container.addLayout(row)
 
         hint = QLabel(
-            "Choices from the unknown-window toast are saved here and kept after restart."
+            "Choices from the unknown-window panel are saved here and kept after restart."
         )
         hint.setObjectName("hintLabel")
         hint.setWordWrap(True)
@@ -718,6 +737,14 @@ class SettingsPage(QWidget):
         self._wave_slider.setValue(pct)
         self._wave_slider.blockSignals(False)
         self._wave_label.setText(f"{pct}%")
+
+    def set_aurora_brightness_gain(self, value: float) -> None:
+        """Set aurora brightness gain slider (0.0–3.0) without emitting signal."""
+        scaled = int(round(max(0.0, min(3.0, value)) * 100))
+        self._aurora_slider.blockSignals(True)
+        self._aurora_slider.setValue(scaled)
+        self._aurora_slider.blockSignals(False)
+        self._aurora_label.setText(f"{scaled / 100:.1f}×")
 
     def set_main_theme(self, theme: str) -> None:
         """Select main theme combo without emitting signal."""

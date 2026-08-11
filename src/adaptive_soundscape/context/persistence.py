@@ -12,9 +12,9 @@ from adaptive_soundscape.core.events import WorkContext
 class ContextPersistence:
     """Hold context stable until candidate exceeds dwell threshold."""
 
-    dwell_seconds: float = 20.0
-    dwell_seconds_min: float = 8.0
-    dwell_seconds_max: float = 45.0
+    dwell_seconds: float = 5.0
+    dwell_seconds_min: float = 3.0
+    dwell_seconds_max: float = 8.0
     unknown_grace_polls: int = 4
     current: WorkContext = WorkContext.UNKNOWN
     candidate: WorkContext = WorkContext.UNKNOWN

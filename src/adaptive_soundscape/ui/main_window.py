@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 
 from adaptive_soundscape.core.events import FocusState, WorkContext
 from adaptive_soundscape.ui.home_page import HomePage
+from adaptive_soundscape.ui.inference_toast import InferenceToast
 from adaptive_soundscape.ui.settings_page import SettingsPage
 from adaptive_soundscape.ui.upload_page import UploadPage
 
@@ -209,8 +210,10 @@ class MainWindow(QMainWindow):
 
         root.addWidget(self._sidebar)
 
-        # ── Content area ──
-        right = QVBoxLayout()
+        # ── Content area (host for pages + in-window confirmation overlay) ──
+        self._content_host = QWidget()
+        self._content_host.setObjectName("contentHost")
+        right = QVBoxLayout(self._content_host)
         right.setContentsMargins(0, 0, 0, 0)
         right.setSpacing(0)
 
@@ -235,7 +238,10 @@ class MainWindow(QMainWindow):
         self._status_label.setWordWrap(True)
         right.addWidget(self._status_label)
 
-        root.addLayout(right, stretch=1)
+        root.addWidget(self._content_host, stretch=1)
+
+        # Classification confirmations appear inside the main window (not a popup).
+        self.inference_toast = InferenceToast(self._content_host)
 
         # ── Hidden legacy controls (app.py backward-compat) ──
         self._build_hidden_controls()
@@ -314,6 +320,7 @@ class MainWindow(QMainWindow):
         self._home_page.set_dark_mode(enabled)
         self._upload_page.set_dark_mode(enabled)
         self._settings_page.set_dark_mode(enabled)
+        self.inference_toast.set_dark_mode(enabled)
 
         # Reapply current status tint after theme switch
         self._apply_page_tint()
