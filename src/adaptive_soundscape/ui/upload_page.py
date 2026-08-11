@@ -680,7 +680,7 @@ class UploadPage(QWidget):
     def _open_advanced(self) -> None:
         if self._assets_dir is None:
             return
-        changed = AlbumManagerDialog.run(self._assets_dir, self)
+        changed = AlbumManagerDialog.run(self._assets_dir, self, dark=self._dark)
         if changed:
             for panel in self._panels.values():
                 panel.refresh()

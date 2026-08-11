@@ -5,6 +5,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+# Silence all console logging — keep the terminal clean.
+logging.getLogger().addHandler(logging.NullHandler())
+
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
@@ -98,6 +101,8 @@ class AdaptiveSoundscapeApp:
         self._prompted_processes: set[str] = set()
         self._dismissed_processes: set[str] = set()
         self._last_process_key = ""
+        # Pending classification info for the "Classification wrong?" button
+        self._pending_classification: dict | None = None
 
         # Sync initial volume with config / Settings page
         self.director.set_volume(self.settings.adaptive_music.master_volume)
@@ -127,6 +132,9 @@ class AdaptiveSoundscapeApp:
 
         self._toast.confirmed.connect(self._on_inference_confirmed)
         self._toast.dismissed.connect(self._on_inference_dismissed)
+
+        # Show classification toast on demand (user clicks "Classification wrong?")
+        self.window.home_page.classify_requested.connect(self._on_classify_requested)
 
         # ── Settings page signals ──
         sp = self.window.settings_page
@@ -178,6 +186,8 @@ class AdaptiveSoundscapeApp:
         self.monitor.stop()
         self.director.shutdown()
         self._toast.hide()
+        self._pending_classification = None
+        self.window.home_page.set_classify_available(False)
 
     def _persist_user_state(self) -> None:
         """Flush classification mappings and UI prefs to disk."""
@@ -427,6 +437,7 @@ class AdaptiveSoundscapeApp:
             ctx = self.persistence.update(resolved.context, resolved.confidence)
             confidence = resolved.confidence
             self._maybe_prompt_misc(resolved)
+            self._update_classify_button(resolved)
 
         if ctx != self._current_context:
             self.bus.publish(ContextChanged(self._current_context, ctx, confidence))
@@ -469,24 +480,21 @@ class AdaptiveSoundscapeApp:
             )
 
     def _maybe_prompt_misc(self, resolved) -> None:
+        """Hide the toast if user switches away from a misc-unclassified window."""
         process_key = _process_key(resolved.process_name)
         if process_key != self._last_process_key:
             self._last_process_key = process_key
 
+        # Toast auto-hides when the current window is no longer misc/unclassified.
         if not resolved.needs_confirm or not resolved.is_misc:
             if self._toast.is_showing_for(resolved.process_name):
                 self._toast.hide()
             return
 
-        if not process_key:
-            return
-        if process_key in self._dismissed_processes:
-            return
-        if process_key in self._prompted_processes and self._toast.isVisible():
-            return
-        if process_key in self._prompted_processes and not self._toast.isVisible():
-            return
-
+    def _update_classify_button(self, resolved) -> None:
+        """Always keep the classify button visible during playback, and store
+        the latest window info so the user can correct classification any time."""
+        process_key = _process_key(resolved.process_name)
         suggested = resolved.context
         confidence = resolved.confidence
         source = resolved.source
@@ -495,13 +503,27 @@ class AdaptiveSoundscapeApp:
             confidence = resolved.inference.confidence
             source = resolved.inference.source
 
-        self._prompted_processes.add(process_key)
+        self._pending_classification = {
+            "process_name": resolved.process_name,
+            "window_title": resolved.window_title,
+            "process_key": process_key,
+            "suggested": suggested,
+            "confidence": confidence,
+            "source": source,
+        }
+        self.window.home_page.set_classify_available(True)
+
+    def _on_classify_requested(self) -> None:
+        """User clicked 'Classification wrong?' — show the toast inline."""
+        info = self._pending_classification
+        if info is None:
+            return
         self._toast.show_inference(
-            process_name=resolved.process_name,
-            window_title=resolved.window_title,
-            suggested=suggested,
-            confidence=confidence,
-            source=source,
+            process_name=info["process_name"],
+            window_title=info["window_title"],
+            suggested=info["suggested"],
+            confidence=info["confidence"],
+            source=info["source"],
         )
 
     def _on_inference_confirmed(

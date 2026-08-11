@@ -19,77 +19,102 @@ from adaptive_soundscape.context.user_mappings import CONFIGURABLE_CONTEXTS
 TOAST_STYLE = """
 QWidget#inferenceToast {
     background-color: #25252b;
-    color: #e8e8ec;
-    border: 1px solid #44444d;
-    border-radius: 10px;
+    color: #c0c0c8;
+    border: 1px solid #383842;
+    border-radius: 8px;
     font-family: 'Segoe UI', sans-serif;
-    font-size: 12px;
+    font-size: 11px;
 }
 QLabel#toastTitle {
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 600;
+    color: #d0d0d8;
 }
 QLabel#toastMeta {
-    color: #a0a0aa;
+    color: #8a8a98;
+    font-size: 10px;
+}
+QLabel#toastHint {
+    color: #b0b0ba;
 }
 QComboBox {
     background-color: #1a1a1e;
-    border: 1px solid #44444d;
+    border: 1px solid #383842;
     border-radius: 4px;
     padding: 4px 8px;
     color: #e8e8ec;
+    font-size: 10px;
+}
+QComboBox QAbstractItemView {
+    background-color: #1a1a1e;
+    color: #e8e8ec;
+    selection-background-color: #3a5a8c;
 }
 QPushButton {
-    background-color: #33333a;
-    border: 1px solid #44444d;
-    border-radius: 6px;
-    padding: 6px 12px;
-    color: #e8e8ec;
+    background-color: #2a2a32;
+    border: 1px solid #3a3a44;
+    border-radius: 4px;
+    padding: 4px 10px;
+    color: #c0c0c8;
+    font-size: 10px;
 }
 QPushButton#confirmBtn {
     background-color: #3a5a8c;
     border-color: #5b8def;
+    color: #e8e8ec;
 }
-QPushButton:hover { background-color: #3d3d46; }
+QPushButton:hover { background-color: #34343d; }
 QPushButton#confirmBtn:hover { background-color: #4a6ea8; }
 """
 
 LIGHT_TOAST_STYLE = """
 QWidget#inferenceToast {
-    background-color: #ffffff;
-    color: #1a1a1e;
-    border: 1px solid #c0c0c8;
-    border-radius: 10px;
+    background-color: #f8f8fb;
+    color: #4a4a55;
+    border: 1px solid #d0d0d8;
+    border-radius: 8px;
     font-family: 'Segoe UI', sans-serif;
-    font-size: 12px;
+    font-size: 11px;
 }
 QLabel#toastTitle {
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 600;
+    color: #3a3a45;
 }
 QLabel#toastMeta {
-    color: #686878;
+    color: #7a7a8a;
+    font-size: 10px;
+}
+QLabel#toastHint {
+    color: #5a5a68;
 }
 QComboBox {
-    background-color: #f5f5f8;
-    border: 1px solid #c0c0c8;
+    background-color: #ffffff;
+    border: 1px solid #d0d0d8;
     border-radius: 4px;
     padding: 4px 8px;
     color: #1a1a1e;
+    font-size: 10px;
+}
+QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    color: #1a1a1e;
+    selection-background-color: #5b8def;
 }
 QPushButton {
-    background-color: #e0e0e5;
-    border: 1px solid #c0c0c8;
-    border-radius: 6px;
-    padding: 6px 12px;
-    color: #1a1a1e;
+    background-color: #ececf0;
+    border: 1px solid #d0d0d8;
+    border-radius: 4px;
+    padding: 4px 10px;
+    color: #4a4a55;
+    font-size: 10px;
 }
 QPushButton#confirmBtn {
     background-color: #3a5a8c;
     border-color: #5b8def;
     color: #e8e8ec;
 }
-QPushButton:hover { background-color: #d0d0d8; }
+QPushButton:hover { background-color: #dcdce5; }
 QPushButton#confirmBtn:hover { background-color: #4a6ea8; }
 """
 
@@ -110,7 +135,7 @@ class InferenceToast(QWidget):
         # Child overlay — stays inside the main window (not a separate popup).
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(TOAST_STYLE)
-        self.setFixedWidth(340)
+        self.setFixedWidth(250)
         self.hide()
 
         self._process = ""
@@ -119,8 +144,8 @@ class InferenceToast(QWidget):
         self._dark = True
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(14, 12, 14, 12)
-        root.setSpacing(8)
+        root.setContentsMargins(10, 8, 10, 8)
+        root.setSpacing(5)
 
         title = QLabel("Unknown window — confirm category")
         title.setObjectName("toastTitle")
@@ -137,6 +162,7 @@ class InferenceToast(QWidget):
         root.addWidget(self._title_label)
 
         self._hint = QLabel("")
+        self._hint.setObjectName("toastHint")
         self._hint.setWordWrap(True)
         root.addWidget(self._hint)
 
@@ -216,9 +242,9 @@ class InferenceToast(QWidget):
         if parent is None:
             return
         self.adjustSize()
-        margin = 16
-        # Sit above the status line area inside the content host.
-        x = max(margin, parent.width() - self.width() - margin)
+        margin = 12
+        # Tucked into bottom-left — less likely to distract than bottom-right.
+        x = margin
         y = max(margin, parent.height() - self.height() - margin)
         self.move(x, y)
 

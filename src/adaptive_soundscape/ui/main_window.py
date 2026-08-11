@@ -169,6 +169,7 @@ class MainWindow(QMainWindow):
 
     categories_clicked = pyqtSignal()
     albums_clicked = pyqtSignal()
+    classify_requested = pyqtSignal()  # user clicked "Classification wrong?"
 
     def __init__(self) -> None:
         super().__init__()
