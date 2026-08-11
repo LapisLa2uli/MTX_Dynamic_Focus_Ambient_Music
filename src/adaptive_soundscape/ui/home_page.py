@@ -491,6 +491,12 @@ class HomePage(QWidget):
         self._theme_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         status_l.addWidget(self._theme_label)
 
+        self._music_detail = QLabel("")
+        self._music_detail.setObjectName("descriptionLabel")
+        self._music_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._music_detail.setWordWrap(True)
+        status_l.addWidget(self._music_detail)
+
         self._top_stack.addWidget(status_w)  # index 1
 
         root.addWidget(self._top_stack, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -548,8 +554,15 @@ class HomePage(QWidget):
         """Forward real-time frequency-band amplitudes to the EQ ring."""
         self._eq_ring.set_bands(bands)
 
-    def update_status(self, *, context: WorkContext, focus_score: float) -> None:
-        """Refresh focus bar and theme label (called ~1 Hz while running)."""
+    def update_status(
+        self,
+        *,
+        context: WorkContext,
+        focus_score: float,
+        music_state: str = "",
+        music_detail: str = "",
+    ) -> None:
+        """Refresh focus bar, theme, and music detail (called ~1 Hz while running)."""
         if not self._running:
             return
 
@@ -558,7 +571,9 @@ class HomePage(QWidget):
         self._focus_pct.setText(f"{pct}%")
 
         theme = THEME_LABELS.get(context, "Neutral")
-        if pct >= 80:
+        if music_state:
+            mood = music_state
+        elif pct >= 80:
             mood = "Deep Focus"
         elif pct >= 60:
             mood = "In the Zone"
@@ -570,6 +585,8 @@ class HomePage(QWidget):
             mood = "Distracted"
 
         self._theme_label.setText(f"{theme}  ·  {mood}")
+        self._music_detail.setText(music_detail)
+        self._music_detail.setVisible(bool(music_detail))
 
     # ------------------------------------------------------------------
     # Theme switching

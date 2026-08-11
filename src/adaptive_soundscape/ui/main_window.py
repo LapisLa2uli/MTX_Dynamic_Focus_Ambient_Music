@@ -381,8 +381,16 @@ class MainWindow(QMainWindow):
         focus_state: FocusState,
         focus_score: float,
         profile_name: str,
+        music_state: str = "",
+        music_detail: str = "",
     ) -> None:
-        self._home_page.update_status(context=context, focus_score=focus_score)
+        del focus_state, profile_name
+        self._home_page.update_status(
+            context=context,
+            focus_score=focus_score,
+            music_state=music_state,
+            music_detail=music_detail,
+        )
 
     @property
     def manual_override_enabled(self) -> bool:

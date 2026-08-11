@@ -9,6 +9,8 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
+    QProgressDialog,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
@@ -19,9 +21,19 @@ from adaptive_soundscape.audio.album import (
     PROFILE_IDS,
     add_track,
     display_name_for_profile,
+    list_songs,
     list_tracks,
 )
+from adaptive_soundscape.audio.demucs_client import DemucsClient
+from adaptive_soundscape.audio.generate_layers import generate_and_install_layer
 from adaptive_soundscape.audio.loader import SUPPORTED_EXTENSIONS
+from adaptive_soundscape.audio.music_manifest import (
+    MusicIntensity,
+    migrate_songs_to_layered_stubs,
+)
+from adaptive_soundscape.audio.musicgen_client import MusicGenClient
+from adaptive_soundscape.core.config import load_settings
+from adaptive_soundscape.ui.album_manager import AlbumManagerDialog, _StemSeparateThread
 
 # Profile → icon mapping for tab buttons
 PROFILE_ICONS: dict[str, str] = {
@@ -250,6 +262,19 @@ QPushButton {
 }
 """
 
+SECONDARY_BTN = """
+QPushButton {
+    background-color: #33333a;
+    color: #e8e8ec;
+    border: 1px solid #44444d;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px 16px;
+}
+QPushButton:hover { background-color: #3d3d46; }
+"""
+
 
 class _UploadZone(QFrame):
     """Clickable / droppable file staging area."""
@@ -338,7 +363,7 @@ class _UploadZone(QFrame):
 
 
 class _ProfilePanel(QWidget):
-    """Content for one status profile: subtitle, current track, upload zone, SWAP."""
+    """One scenario album: song summary, upload zone, SWAP → new song + Demucs."""
 
     soundtrack_swapped = pyqtSignal()
 
@@ -347,17 +372,17 @@ class _ProfilePanel(QWidget):
         self._assets_dir = assets_dir
         self._profile_id = profile_id
         self._display = display_name_for_profile(profile_id)
+        self._stem_thread: _StemSeparateThread | None = None
+        self._latest_song: Path | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        # Subtitle
         subtitle = QLabel(self._display)
         subtitle.setObjectName("subtitleLabel")
         layout.addWidget(subtitle)
 
-        # Current soundtrack bar
         self._track_bar = QFrame()
         self._track_bar.setObjectName("trackBar")
         self._track_bar.setStyleSheet(TRACK_BAR_STYLE)
@@ -365,27 +390,38 @@ class _ProfilePanel(QWidget):
         track_layout.setContentsMargins(0, 0, 0, 0)
         self._current_label = QLabel("")
         self._current_label.setObjectName("currentTrackLabel")
-        self._no_track_label = QLabel("No soundtrack loaded")
+        self._current_label.setWordWrap(True)
+        self._no_track_label = QLabel("No song family loaded")
         self._no_track_label.setObjectName("noTrackLabel")
         track_layout.addWidget(self._current_label)
         track_layout.addWidget(self._no_track_label)
         track_layout.addStretch()
         layout.addWidget(self._track_bar)
 
-        # Upload zone + SWAP row
         row = QHBoxLayout()
         row.setSpacing(12)
 
         self._upload_zone = _UploadZone()
         row.addWidget(self._upload_zone, stretch=1)
 
+        side = QVBoxLayout()
+        side.setSpacing(8)
         self._swap_btn = QPushButton("SWAP")
         self._swap_btn.setFixedHeight(60)
         self._swap_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._swap_btn.setEnabled(False)
         self._swap_btn.setStyleSheet(SWAP_DISABLED)
+        self._swap_btn.setToolTip("Add staged file as a new song family (auto stem-separates)")
         self._swap_btn.clicked.connect(self._on_swap)
-        row.addWidget(self._swap_btn)
+        side.addWidget(self._swap_btn)
+
+        self._ai_btn = QPushButton("Generate AI Layers")
+        self._ai_btn.setStyleSheet(SECONDARY_BTN)
+        self._ai_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ai_btn.clicked.connect(self._generate_ai)
+        side.addWidget(self._ai_btn)
+        side.addStretch()
+        row.addLayout(side)
 
         layout.addLayout(row)
         layout.addStretch()
@@ -394,8 +430,18 @@ class _ProfilePanel(QWidget):
         self.refresh()
 
     def refresh(self) -> None:
+        songs = list_songs(self._assets_dir, self._profile_id)
         tracks = list_tracks(self._assets_dir, self._profile_id)
-        if tracks:
+        self._latest_song = songs[-1] if songs else None
+        if songs:
+            names = ", ".join(s.name for s in songs[:4])
+            more = f" (+{len(songs) - 4})" if len(songs) > 4 else ""
+            self._current_label.setText(
+                f"{len(songs)} song(s): {names}{more}"
+            )
+            self._current_label.show()
+            self._no_track_label.hide()
+        elif tracks:
             self._current_label.setText(f"Current:  {tracks[0].name}")
             self._current_label.show()
             self._no_track_label.hide()
@@ -412,14 +458,126 @@ class _ProfilePanel(QWidget):
         if staged is None:
             return
         try:
-            add_track(self._assets_dir, self._profile_id, staged)
-        except (OSError, ValueError):
+            dest = add_track(
+                self._assets_dir,
+                self._profile_id,
+                staged,
+                intensity=MusicIntensity.FOCUS,
+                song_id=None,
+            )
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Upload failed", str(exc))
             return
+        song_dir = dest.parent.parent
+        migrate_songs_to_layered_stubs(self._assets_dir)
         self._upload_zone.clear_staged()
         self._swap_btn.setEnabled(False)
         self._swap_btn.setStyleSheet(SWAP_DISABLED)
         self.refresh()
         self.soundtrack_swapped.emit()
+        self._maybe_auto_separate(song_dir)
+
+    def _maybe_auto_separate(self, song_dir: Path) -> None:
+        settings = load_settings()
+        cfg = settings.stem_separation
+        if not cfg.enabled or not cfg.auto_on_upload:
+            return
+        client = DemucsClient(cfg.api_base_url, timeout_seconds=cfg.timeout_seconds)
+        try:
+            client.health()
+        except RuntimeError as exc:
+            QMessageBox.warning(
+                self,
+                "Stem separation skipped",
+                f"{exc}\n\nStub layers were installed. Start services/demucs_api "
+                "then run:\npython scripts/separate_album_stems.py",
+            )
+            return
+
+        progress = QProgressDialog(
+            f"Separating stems for {song_dir.name}…",
+            None,
+            0,
+            0,
+            self,
+        )
+        progress.setWindowTitle("Stem separation")
+        progress.setMinimumDuration(0)
+        progress.setCancelButton(None)
+        progress.setModal(True)
+        progress.show()
+
+        thread = _StemSeparateThread(
+            song_dir,
+            api_base_url=cfg.api_base_url,
+            timeout_seconds=cfg.timeout_seconds,
+            model=cfg.model,
+            parent=self,
+        )
+        self._stem_thread = thread
+
+        def _on_ok(paths: list) -> None:
+            progress.close()
+            self.refresh()
+            self.soundtrack_swapped.emit()
+            QMessageBox.information(
+                self,
+                "Stems ready",
+                f"Separated {len(paths)} base layers for {song_dir.name}.",
+            )
+
+        def _on_fail(message: str) -> None:
+            progress.close()
+            migrate_songs_to_layered_stubs(self._assets_dir)
+            self.refresh()
+            self.soundtrack_swapped.emit()
+            QMessageBox.warning(
+                self,
+                "Stem separation failed",
+                f"{message}\n\nStub layers were installed as a fallback.",
+            )
+
+        thread.succeeded.connect(_on_ok)
+        thread.failed.connect(_on_fail)
+        thread.start()
+
+    def _generate_ai(self) -> None:
+        song = self._latest_song
+        if song is None:
+            QMessageBox.information(self, "Generate", "Add a song first (SWAP).")
+            return
+        settings = load_settings()
+        gen = settings.generative_layers
+        if not gen.enabled:
+            QMessageBox.warning(self, "Generate", "generative_layers.enabled is false.")
+            return
+        client = MusicGenClient(gen.api_base_url, timeout_seconds=gen.timeout_seconds)
+        try:
+            client.health()
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "MusicGen offline", str(exc))
+            return
+        written: list[str] = []
+        for layer_id in gen.output_layers:
+            try:
+                dest = generate_and_install_layer(
+                    song,
+                    scenario=self._profile_id,
+                    layer_id=layer_id,
+                    client=client,
+                    model_size=gen.model_size,
+                )
+                written.append(dest.name)
+            except Exception as exc:
+                QMessageBox.warning(self, "Generate failed", f"{layer_id}: {exc}")
+                return
+        self.refresh()
+        self.soundtrack_swapped.emit()
+        QMessageBox.information(
+            self,
+            "AI layers ready",
+            f"Wrote {', '.join(written)} for {song.name}.",
+        )
 
     def set_assets_dir(self, assets_dir: Path) -> None:
         self._assets_dir = assets_dir
@@ -430,8 +588,9 @@ class _ProfilePanel(QWidget):
         self._track_bar.setStyleSheet(TRACK_BAR_STYLE if enabled else LIGHT_TRACK_BAR_STYLE)
         self._upload_zone.setStyleSheet(UPLOAD_ZONE_STYLE if enabled else LIGHT_UPLOAD_ZONE_STYLE)
         self._swap_btn.setStyleSheet(
-            SWAP_ENABLED if self._swap_btn.isEnabled() else (SWAP_DISABLED if enabled else SWAP_DISABLED)
+            SWAP_ENABLED if self._swap_btn.isEnabled() else SWAP_DISABLED
         )
+        self._ai_btn.setStyleSheet(SECONDARY_BTN)
 
 
 class UploadPage(QWidget):
@@ -447,17 +606,26 @@ class UploadPage(QWidget):
         self._assets_dir: Path | None = None
         self._panels: dict[str, _ProfilePanel] = {}
         self._tab_map: dict[int, str] = {}  # index → profile_id
+        self._tab_index = 0
+        self._dark = True
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 24)
         root.setSpacing(16)
 
-        # ── Title ──
+        title_row = QHBoxLayout()
         title = QLabel("Customize Soundtracks")
         title.setObjectName("pageTitle")
-        root.addWidget(title)
+        title_row.addWidget(title)
+        title_row.addStretch()
+        self._advanced_btn = QPushButton("Advanced…")
+        self._advanced_btn.setStyleSheet(SECONDARY_BTN)
+        self._advanced_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._advanced_btn.setToolTip("Open full album / stem / intensity manager")
+        self._advanced_btn.clicked.connect(self._open_advanced)
+        title_row.addWidget(self._advanced_btn)
+        root.addLayout(title_row)
 
-        # ── Horizontal tab bar ──
         tab_row = QHBoxLayout()
         tab_row.setSpacing(0)
         tab_row.setContentsMargins(0, 0, 0, 0)
@@ -477,32 +645,29 @@ class UploadPage(QWidget):
         tab_row.addStretch()
         root.addLayout(tab_row)
 
-        # ── Thin separator ──
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color: #2a2a30;")
         sep.setFixedHeight(1)
         root.addWidget(sep)
 
-        # ── Subtitle (profile name shown on tab switch) ──
         self._tab_subtitle = QLabel("")
         self._tab_subtitle.setObjectName("tabSubtitle")
         root.addWidget(self._tab_subtitle)
 
-        # ── Content stack ──
         self._content = QStackedWidget()
         root.addWidget(self._content, stretch=1)
 
         self._switch_tab(0)
 
-    # ── Public API ──────────────────────────────────────────────
-
     def set_assets_dir(self, assets_dir: Path) -> None:
         self._assets_dir = assets_dir
-        # Refresh or rebuild panels
         self._panels.clear()
         while self._content.count():
-            self._content.removeWidget(self._content.widget(0))
+            widget = self._content.widget(0)
+            self._content.removeWidget(widget)
+            if widget is not None:
+                widget.deleteLater()
 
         for profile_id in PROFILE_IDS:
             panel = _ProfilePanel(assets_dir, profile_id)
@@ -512,33 +677,36 @@ class UploadPage(QWidget):
 
         self._switch_tab(0)
 
-    # ── Theme switching ─────────────────────────────────────────
+    def _open_advanced(self) -> None:
+        if self._assets_dir is None:
+            return
+        changed = AlbumManagerDialog.run(self._assets_dir, self)
+        if changed:
+            for panel in self._panels.values():
+                panel.refresh()
+            self.soundtrack_changed.emit()
 
     def set_dark_mode(self, enabled: bool) -> None:
         """Apply dark / light stylesheet to the upload page and children."""
         self._dark = enabled
         self.setStyleSheet(UPLOAD_STYLE if enabled else LIGHT_UPLOAD_STYLE)
-        # Re-style tabs
         on = TAB_ACTIVE if enabled else LIGHT_TAB_ACTIVE
         off = TAB_BASE if enabled else LIGHT_TAB_BASE
         for i, btn in enumerate(self._tab_buttons):
             btn.setStyleSheet(on if i == self._tab_index else off)
-        # Push to panels
+        self._advanced_btn.setStyleSheet(SECONDARY_BTN)
         for panel in self._panels.values():
             panel.set_dark_mode(enabled)
-
-    # ── Internal ────────────────────────────────────────────────
 
     def _switch_tab(self, index: int) -> None:
         if not self._tab_map:
             return
         self._tab_index = index
         self._content.setCurrentIndex(index)
-        on = TAB_ACTIVE if getattr(self, '_dark', True) else LIGHT_TAB_ACTIVE
-        off = TAB_BASE if getattr(self, '_dark', True) else LIGHT_TAB_BASE
+        on = TAB_ACTIVE if self._dark else LIGHT_TAB_ACTIVE
+        off = TAB_BASE if self._dark else LIGHT_TAB_BASE
         for i, btn in enumerate(self._tab_buttons):
             btn.setStyleSheet(on if i == index else off)
-        # Show profile name in subtitle
         profile_id = self._tab_map.get(index)
         if profile_id and hasattr(self, "_tab_subtitle"):
             self._tab_subtitle.setText(display_name_for_profile(profile_id))
