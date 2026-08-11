@@ -505,7 +505,9 @@ class PlaceholderMixer:
                 out = mixed
             else:
                 out = current
-            return (out * self.master_volume).astype(np.float32)
+            result = (out * self.master_volume).astype(np.float32)
+            self._update_visualiser(result)
+            return result
 
         current = self._read_loop(profile, frames)
         current = self._apply_params(current, params)
@@ -530,16 +532,18 @@ class PlaceholderMixer:
             out = current
 
         result = (out * self.master_volume).astype(np.float32)
-        # Store RMS for the UI visualiser (atomic read, GIL-protected).
+        self._update_visualiser(result)
+        return result
+
+    def _update_visualiser(self, result: np.ndarray) -> None:
+        """Store RMS + 48-band magnitudes for the Home EQ ring."""
         self._current_level = float(np.sqrt(np.mean(result**2)) + 1e-8)
-        # Extract 48 log‑spaced frequency-band magnitudes for the EQ ring.
         try:
             self._current_bands = _band_magnitudes(
                 result, self._band_edges, self.sample_rate
             )
         except Exception:
             self._current_bands = [0.0] * self._n_bands
-        return result
 
 
 # ---------------------------------------------------------------------------

@@ -371,11 +371,15 @@ class SettingsPage(QWidget):
     dark_mode_toggled = pyqtSignal(bool)
     volume_changed = pyqtSignal(float)
     threshold_changed = pyqtSignal(float)
+    waveform_smoothness_changed = pyqtSignal(float)
     main_theme_changed = pyqtSignal(str)
     quit_requested = pyqtSignal()
     reset_requested = pyqtSignal()
     home_requested = pyqtSignal()
+    categories_requested = pyqtSignal()
     status_colors_changed = pyqtSignal(dict)
+
+    DEFAULT_WAVEFORM_SMOOTHNESS = 0.35
 
     def __init__(
         self,
@@ -384,6 +388,7 @@ class SettingsPage(QWidget):
         master_volume: float = 0.75,
         sensitivity: float = 1.0,
         main_theme: str = "unknown",
+        waveform_smoothness: float = DEFAULT_WAVEFORM_SMOOTHNESS,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("settingsPage")
@@ -415,6 +420,17 @@ class SettingsPage(QWidget):
         # -- Section: Appearance --
         content.addWidget(self._section_label("Appearance"))
         self._build_dark_mode_row(content)
+        self._wave_slider, self._wave_label = self._build_slider_row(
+            content,
+            "Waveform Smoothness",
+            int(round(waveform_smoothness * 100)),
+            0,
+            100,
+            "{:d}%",
+        )
+        wave_hint = QLabel("Lower  →  more detailed ring ·  Higher  →  softer oval glow")
+        wave_hint.setObjectName("hintLabel")
+        content.addWidget(wave_hint)
 
         # -- Section: Audio --
         content.addWidget(self._section_label("Audio"))
@@ -439,6 +455,7 @@ class SettingsPage(QWidget):
         # -- Section: Personalization --
         content.addWidget(self._section_label("Personalization"))
         self._build_theme_row(content, main_theme)
+        self._build_categories_row(content)
 
         # -- Section: Color Themes --
         content.addWidget(self._section_label("Status Colors"))
@@ -534,6 +551,8 @@ class SettingsPage(QWidget):
                 self.volume_changed.emit(val / 100.0)
             elif slider is self._threshold_slider:
                 self.threshold_changed.emit(val / 100.0)
+            elif getattr(self, "_wave_slider", None) is slider:
+                self.waveform_smoothness_changed.emit(val / 100.0)
 
         slider.valueChanged.connect(_on_change)
 
@@ -564,6 +583,31 @@ class SettingsPage(QWidget):
         row.addWidget(self._theme_combo)
         row.addStretch()
         container.addLayout(row)
+
+    def _build_categories_row(self, container: QVBoxLayout) -> None:
+        row = QHBoxLayout()
+        row.setSpacing(12)
+
+        label = QLabel("Window Categories")
+        label.setObjectName("settingLabel")
+        row.addWidget(label)
+
+        btn = QPushButton("Manage…")
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setToolTip(
+            "Edit saved process names and title keywords used for window classification."
+        )
+        btn.clicked.connect(self.categories_requested.emit)
+        row.addWidget(btn)
+        row.addStretch()
+        container.addLayout(row)
+
+        hint = QLabel(
+            "Choices from the unknown-window toast are saved here and kept after restart."
+        )
+        hint.setObjectName("hintLabel")
+        hint.setWordWrap(True)
+        container.addWidget(hint)
 
     def _build_color_row(self, container: QVBoxLayout, profile_id: str) -> None:
         """One row: icon + name | colour swatch | Pick button."""
@@ -666,6 +710,14 @@ class SettingsPage(QWidget):
         self._threshold_slider.setValue(int(round(value * 100)))
         self._threshold_slider.blockSignals(False)
         self._threshold_label.setText(f"{value:.1f}")
+
+    def set_waveform_smoothness(self, value: float) -> None:
+        """Set waveform smoothness slider (0.0–1.0) without emitting signal."""
+        pct = int(round(max(0.0, min(1.0, value)) * 100))
+        self._wave_slider.blockSignals(True)
+        self._wave_slider.setValue(pct)
+        self._wave_slider.blockSignals(False)
+        self._wave_label.setText(f"{pct}%")
 
     def set_main_theme(self, theme: str) -> None:
         """Select main theme combo without emitting signal."""

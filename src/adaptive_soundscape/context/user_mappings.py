@@ -144,9 +144,22 @@ def load_user_mappings(path: Path | None = None) -> UserMappings:
 def save_user_mappings(mappings: UserMappings, path: Path | None = None) -> Path:
     target = path or default_mappings_path()
     target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("w", encoding="utf-8") as handle:
-        json.dump(mappings.to_dict(), handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
+    payload = mappings.to_dict()
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+            handle.flush()
+        tmp.replace(target)
+    except OSError:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        raise
+    logger.info("Saved user context mappings to %s", target)
     return target
 
 

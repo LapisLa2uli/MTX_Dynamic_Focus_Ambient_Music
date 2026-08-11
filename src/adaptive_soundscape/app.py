@@ -23,6 +23,11 @@ from adaptive_soundscape.context.user_mappings import (
 )
 from adaptive_soundscape.core.bus import EventBus
 from adaptive_soundscape.core.config import Settings, load_settings, resolve_assets_dir
+from adaptive_soundscape.core.ui_preferences import (
+    UiPreferences,
+    load_ui_preferences,
+    save_ui_preferences,
+)
 from adaptive_soundscape.core.events import (
     ActivitySnapshot,
     AudioParametersUpdated,
@@ -38,7 +43,7 @@ from adaptive_soundscape.ui.album_manager import AlbumManagerDialog
 from adaptive_soundscape.ui.category_editor import CategoryEditorDialog
 from adaptive_soundscape.ui.inference_toast import InferenceToast
 from adaptive_soundscape.ui.main_window import MainWindow
-from adaptive_soundscape.ui.settings_page import DEFAULT_STATUS_COLORS
+from adaptive_soundscape.ui.settings_page import DEFAULT_STATUS_COLORS, SettingsPage
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +110,11 @@ class AdaptiveSoundscapeApp:
         self._timer.setInterval(interval)
         self._timer.timeout.connect(self._tick)
 
+        # ~60 Hz EQ-ring refresh (separate from the 1 Hz cognitive tick).
+        self._viz_timer = QTimer()
+        self._viz_timer.setInterval(16)
+        self._viz_timer.timeout.connect(self._refresh_eq_bands)
+
         self.window.upload_page.set_assets_dir(assets)
         self.window.upload_page.soundtrack_changed.connect(self._on_albums_changed)
 
@@ -123,13 +133,25 @@ class AdaptiveSoundscapeApp:
         sp = self.window.settings_page
         sp.volume_changed.connect(self._on_volume_changed)
         sp.threshold_changed.connect(self._on_sensitivity)
+        sp.waveform_smoothness_changed.connect(self._on_waveform_smoothness_changed)
         sp.main_theme_changed.connect(self._on_main_theme_changed)
+        sp.categories_requested.connect(self._open_category_editor)
         sp.quit_requested.connect(QApplication.instance().quit)
         sp.reset_requested.connect(self._on_reset_settings)
         sp.status_colors_changed.connect(self._on_status_colors_changed)
+        sp.dark_mode_toggled.connect(self._on_dark_mode_changed)
 
-        self._main_theme = "unknown"
+        self._ui_prefs = load_ui_preferences()
+        self._main_theme = self._ui_prefs.main_theme or "unknown"
         self._status_colors = dict(DEFAULT_STATUS_COLORS)
+        if self._ui_prefs.status_colors:
+            self._status_colors.update(self._ui_prefs.status_colors)
+        self._waveform_smoothness = float(self._ui_prefs.waveform_smoothness)
+        self._apply_ui_preferences()
+
+        qt_app = QApplication.instance()
+        if qt_app is not None:
+            qt_app.aboutToQuit.connect(self._persist_user_state)
 
         self.bus.subscribe(ActivitySnapshot, self._on_activity)
         self.bus.subscribe(ContextChanged, self._on_context)
@@ -149,15 +171,53 @@ class AdaptiveSoundscapeApp:
         self._refresh_ui()
 
     def stop(self) -> None:
+        self._persist_user_state()
         self._timer.stop()
+        self._viz_timer.stop()
         self.monitor.stop()
         self.director.shutdown()
         self._toast.hide()
+
+    def _persist_user_state(self) -> None:
+        """Flush classification mappings and UI prefs to disk."""
+        try:
+            save_user_mappings(self.user_mappings)
+        except OSError as exc:
+            logger.warning("Failed to save user context mappings: %s", exc)
+        try:
+            prefs = UiPreferences(
+                dark_mode=self.window.is_dark_mode,
+                main_theme=self._main_theme,
+                waveform_smoothness=self._waveform_smoothness,
+                status_colors=dict(self._status_colors),
+            )
+            save_ui_preferences(prefs)
+            self._ui_prefs = prefs
+        except OSError as exc:
+            logger.warning("Failed to save UI preferences: %s", exc)
+
+    def _apply_ui_preferences(self) -> None:
+        sp = self.window.settings_page
+        sp.set_main_theme(self._main_theme)
+        sp.set_status_colors(dict(self._status_colors))
+        sp.set_waveform_smoothness(self._waveform_smoothness)
+        self.window.home_page.set_waveform_smoothness(self._waveform_smoothness)
+        self.window._set_dark_mode(bool(self._ui_prefs.dark_mode))
+        sp.set_dark_mode(bool(self._ui_prefs.dark_mode))
+
+    def _refresh_eq_bands(self) -> None:
+        if not self._audio_running:
+            return
+        bands = getattr(self.audio, "current_bands", None)
+        if bands is None:
+            bands = [0.0] * 48
+        self.window.home_page.set_frequency_bands(list(bands))
 
     def _toggle_audio(self, _trigger: bool | None = None) -> None:
         if self._audio_running:
             self.director.pause()
             self._audio_running = False
+            self._viz_timer.stop()
             self.window.home_page.set_running(False)
             self.window.set_status_message("")
             self._refresh_ui()
@@ -199,6 +259,8 @@ class AdaptiveSoundscapeApp:
         self._audio_running = True
         self._active_profile_id = decision.profile_id
         self.window.home_page.set_running(True)
+        self._viz_timer.start()
+        self._refresh_eq_bands()
         self._publish_audio_params(decision)
         self._refresh_ui(decision.display_name)
 
@@ -226,10 +288,14 @@ class AdaptiveSoundscapeApp:
             return
         self.user_mappings = updated
         self.inferer.set_user_mappings(updated)
-        save_user_mappings(updated)
-        self._prompted_processes.clear()
-        self._dismissed_processes.clear()
-        self.window.set_status_message("Category mappings saved.")
+        try:
+            path = save_user_mappings(updated)
+            self._prompted_processes.clear()
+            self._dismissed_processes.clear()
+            self.window.set_status_message(f"Category mappings saved to {path.name}.")
+        except OSError as exc:
+            logger.exception("Failed to save category mappings")
+            self.window.set_status_message(f"Could not save categories: {exc}")
 
     def _open_album_manager(self) -> None:
         assets = resolve_assets_dir(self.settings)
@@ -269,12 +335,23 @@ class AdaptiveSoundscapeApp:
     def _on_main_theme_changed(self, theme: str) -> None:
         """Store the user-selected main/default theme preference."""
         self._main_theme = theme
+        self._persist_user_state()
         logger.info("Main theme set to %s", theme)
 
     def _on_status_colors_changed(self, colors: dict[str, str]) -> None:
         """Store updated per-status colours from the settings page."""
         self._status_colors.update(colors)
+        self._persist_user_state()
         logger.info("Status colours updated")
+
+    def _on_waveform_smoothness_changed(self, value: float) -> None:
+        self._waveform_smoothness = float(value)
+        self.window.home_page.set_waveform_smoothness(self._waveform_smoothness)
+        self._persist_user_state()
+
+    def _on_dark_mode_changed(self, enabled: bool) -> None:
+        del enabled
+        self._persist_user_state()
 
     def _on_reset_settings(self) -> None:
         """Reset all settings to factory defaults."""
@@ -285,12 +362,20 @@ class AdaptiveSoundscapeApp:
         self.estimator.sensitivity = defaults.cognitive.sensitivity
         self._main_theme = "unknown"
         self._status_colors = dict(DEFAULT_STATUS_COLORS)
+        self._waveform_smoothness = SettingsPage.DEFAULT_WAVEFORM_SMOOTHNESS
         self.window.settings_page.set_volume(defaults.audio.master_volume)
         self.window.settings_page.set_threshold(defaults.cognitive.sensitivity)
+        self.window.settings_page.set_waveform_smoothness(
+            SettingsPage.DEFAULT_WAVEFORM_SMOOTHNESS
+        )
+        self.window.home_page.set_waveform_smoothness(
+            SettingsPage.DEFAULT_WAVEFORM_SMOOTHNESS
+        )
         self.window.settings_page.set_main_theme("unknown")
         self.window.settings_page.set_status_colors(dict(DEFAULT_STATUS_COLORS))
         self.director.set_volume(defaults.audio.master_volume)
         self.window.update_status_background("unknown")
+        self._persist_user_state()
         logger.info("Settings reset to defaults")
 
     def _on_sensitivity(self, value: float) -> None:
@@ -354,10 +439,6 @@ class AdaptiveSoundscapeApp:
             self.director.update_intensity(estimate.focus_score)
             self.director.set_parameters(decision.parameters)
 
-        if self._audio_running:
-            bands = getattr(self.audio, 'current_bands', [0.0] * 48)
-            self.window.home_page.set_frequency_bands(bands)
-
         self._refresh_ui(decision.display_name)
         self.monitor.reset_window_switches()
 
@@ -412,14 +493,19 @@ class AdaptiveSoundscapeApp:
     ) -> None:
         if not isinstance(context, WorkContext) or context == WorkContext.UNKNOWN:
             return
-        self.user_mappings.add_process(context, process_name)
+        key = _process_key(process_name)
+        self.user_mappings.add_process(context, process_name or key)
         token = _distinctive_title_token(window_title)
         if token:
             self.user_mappings.add_title_keyword(context, token)
-        save_user_mappings(self.user_mappings)
+        try:
+            save_user_mappings(self.user_mappings)
+        except OSError as exc:
+            logger.exception("Failed to persist window classification")
+            self.window.set_status_message(f"Could not save classification: {exc}")
+            return
         self.inferer.set_user_mappings(self.user_mappings)
 
-        key = _process_key(process_name)
         self._dismissed_processes.discard(key)
         self._prompted_processes.add(key)
 

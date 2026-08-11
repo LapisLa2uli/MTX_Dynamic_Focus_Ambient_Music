@@ -169,6 +169,20 @@ def resolve_context(
     process = snapshot.process_name
     title = snapshot.window_title
 
+    # Explicit user process mappings always win so toast/editor choices stick
+    # across restarts even when built-in rules score a different category higher.
+    forced = _user_process_context(process, mappings)
+    if forced is not None:
+        return ResolvedContext(
+            context=forced,
+            confidence=1.0,
+            source="user",
+            is_misc=False,
+            needs_confirm=False,
+            process_name=process,
+            window_title=title,
+        )
+
     builtin = classify_snapshot(snapshot, rules=DEFAULT_RULES)
     user_rules = mappings.to_rules()
     merged_rules = DEFAULT_RULES + user_rules if user_rules else DEFAULT_RULES
@@ -187,7 +201,6 @@ def resolve_context(
                 and merged.confidence >= builtin.confidence
             )
         )
-        # Stronger signal: process explicitly in user mappings.
         if _matches_user_mapping(process, title, mappings):
             used_user = True
         return ResolvedContext(
@@ -226,16 +239,28 @@ def resolve_context(
     )
 
 
+def _user_process_context(
+    process_name: str, mappings: UserMappings
+) -> WorkContext | None:
+    """Return the category owning this process, if the user mapped it."""
+    process = _process_base(process_name)
+    if not process:
+        return None
+    for ctx, mapping in mappings.by_context.items():
+        for name in mapping.process_names:
+            needle = name.lower().removesuffix(".exe")
+            if process == needle or needle in process:
+                return ctx
+    return None
+
+
 def _matches_user_mapping(
     process_name: str, window_title: str, mappings: UserMappings
 ) -> bool:
-    process = _process_base(process_name)
+    if _user_process_context(process_name, mappings) is not None:
+        return True
     title = _normalize(window_title)
     for mapping in mappings.by_context.values():
-        for name in mapping.process_names:
-            needle = name.lower().removesuffix(".exe")
-            if process and (process == needle or needle in process):
-                return True
         for keyword in mapping.title_keywords:
             if keyword and keyword in title:
                 return True

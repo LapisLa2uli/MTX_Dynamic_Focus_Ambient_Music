@@ -52,6 +52,19 @@ def test_resolve_uses_user_mapping_without_confirm():
     assert resolved.needs_confirm is False
 
 
+def test_user_process_mapping_overrides_builtin_rules():
+    """Saved toast choices must stick even when built-ins prefer another category."""
+    mappings = UserMappings()
+    mappings.add_process(WorkContext.CREATIVE_DESIGN, "chrome")
+    resolved = resolve_context(
+        _snapshot("Funny clips - YouTube", "chrome.exe"),
+        user_mappings=mappings,
+    )
+    assert resolved.context == WorkContext.CREATIVE_DESIGN
+    assert resolved.source == "user"
+    assert resolved.needs_confirm is False
+
+
 def test_resolve_misc_needs_confirm_when_unknown_to_rules():
     # A made-up process should not match DEFAULT_RULES.
     builtin = classify_snapshot(_snapshot("Strange Tool", "qzxtool999.exe"))

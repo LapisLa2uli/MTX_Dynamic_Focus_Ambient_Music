@@ -106,7 +106,8 @@ class InferenceToast(QWidget):
 
         self._combo = QComboBox()
         for ctx in CONFIGURABLE_CONTEXTS:
-            self._combo.addItem(_label_for(ctx), ctx)
+            # Store enum values as strings so QVariant round-trips reliably.
+            self._combo.addItem(_label_for(ctx), ctx.value)
         root.addWidget(self._combo)
 
         buttons = QHBoxLayout()
@@ -145,7 +146,7 @@ class InferenceToast(QWidget):
                 f"({source}, confidence {confidence:.0%}). "
                 "Confirm or pick another category to remember this app."
             )
-            idx = self._combo.findData(suggested)
+            idx = self._combo.findData(suggested.value)
             if idx >= 0:
                 self._combo.setCurrentIndex(idx)
         else:
@@ -173,8 +174,10 @@ class InferenceToast(QWidget):
         )
 
     def _on_confirm(self) -> None:
-        ctx = self._combo.currentData()
-        if not isinstance(ctx, WorkContext):
+        raw = self._combo.currentData()
+        try:
+            ctx = WorkContext(str(raw)) if raw is not None else WorkContext.UNKNOWN
+        except ValueError:
             ctx = WorkContext.UNKNOWN
         self.confirmed.emit(self._process, self._title, ctx)
         self.hide()

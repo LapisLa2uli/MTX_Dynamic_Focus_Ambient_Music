@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from math import cos, pi, sin
+from random import Random
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QRadialGradient
 from PyQt6.QtWidgets import (
     QFrame,
@@ -17,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from adaptive_soundscape.core.events import WorkContext
+from adaptive_soundscape.ui.settings_page import DEFAULT_STATUS_COLORS
 
 THEME_LABELS: dict[WorkContext, str] = {
     WorkContext.PROGRAMMING: "Coding",
@@ -28,103 +31,114 @@ THEME_LABELS: dict[WorkContext, str] = {
     WorkContext.UNKNOWN: "Neutral",
 }
 
-HOME_STYLE = """
-QWidget#homePage {
-    background-color: #1a1a1e;
-}
-QLabel#mottoLabel {
+def _home_stylesheet(*, dark: bool, scale: float = 1.0) -> str:
+    """Home-page QSS with fonts/metrics scaled for the current window size."""
+
+    def px(n: float, minimum: int = 1) -> str:
+        return f"{max(minimum, int(round(n * scale)))}px"
+
+    if dark:
+        return f"""
+QWidget#homePage {{
+    background: transparent;
+}}
+QLabel#mottoLabel {{
     color: #e8e8ec;
-    font-size: 20px;
+    font-size: {px(20, 14)};
     font-weight: 700;
-}
-QLabel#themeLabel {
+}}
+QLabel#themeLabel {{
     color: #a0b8e8;
-    font-size: 15px;
+    font-size: {px(15, 12)};
     font-weight: 700;
-}
-QLabel#focusPctLabel {
+}}
+QLabel#focusPctLabel {{
     color: #e8e8ec;
-    font-size: 14px;
+    font-size: {px(14, 11)};
     font-weight: 700;
-}
-QLabel#focusTitleLabel {
+}}
+QLabel#focusTitleLabel {{
     color: #c8c8d0;
-    font-size: 13px;
+    font-size: {px(13, 10)};
     font-weight: 700;
-}
-QLabel#descriptionLabel {
+}}
+QLabel#descriptionLabel {{
     color: #7a7a86;
-    font-size: 12px;
+    font-size: {px(12, 10)};
     font-weight: 700;
     line-height: 1.6;
-}
-QProgressBar#focusBar {
+}}
+QProgressBar#focusBar {{
     background-color: #2e2e36;
     border: none;
-    border-radius: 3px;
-    height: 6px;
-    max-width: 280px;
-}
-QProgressBar#focusBar::chunk {
+    border-radius: {px(3)};
+    height: {px(6, 4)};
+    max-width: {px(280, 160)};
+}}
+QProgressBar#focusBar::chunk {{
     background-color: #5b8def;
-    border-radius: 3px;
-}
-QFrame#descBox {
+    border-radius: {px(3)};
+}}
+QFrame#descBox {{
     background-color: #23232a;
     border: 1px solid #363640;
-    border-radius: 10px;
-    padding: 14px 18px;
-}
+    border-radius: {px(10, 6)};
+    padding: {px(14, 8)} {px(18, 10)};
+}}
 """
-
-LIGHT_HOME_STYLE = """
-QWidget#homePage {
-    background-color: #f5f5f8;
-}
-QLabel#mottoLabel {
+    return f"""
+QWidget#homePage {{
+    background: transparent;
+}}
+QLabel#mottoLabel {{
     color: #1a1a1e;
-    font-size: 20px;
+    font-size: {px(20, 14)};
     font-weight: 700;
-}
-QLabel#themeLabel {
+}}
+QLabel#themeLabel {{
     color: #3d6fd4;
-    font-size: 15px;
+    font-size: {px(15, 12)};
     font-weight: 700;
-}
-QLabel#focusPctLabel {
+}}
+QLabel#focusPctLabel {{
     color: #1a1a1e;
-    font-size: 14px;
+    font-size: {px(14, 11)};
     font-weight: 700;
-}
-QLabel#focusTitleLabel {
+}}
+QLabel#focusTitleLabel {{
     color: #505060;
-    font-size: 13px;
+    font-size: {px(13, 10)};
     font-weight: 700;
-}
-QLabel#descriptionLabel {
+}}
+QLabel#descriptionLabel {{
     color: #686878;
-    font-size: 12px;
+    font-size: {px(12, 10)};
     font-weight: 700;
     line-height: 1.6;
-}
-QProgressBar#focusBar {
+}}
+QProgressBar#focusBar {{
     background-color: #d8d8e0;
     border: none;
-    border-radius: 3px;
-    height: 6px;
-    max-width: 280px;
-}
-QProgressBar#focusBar::chunk {
+    border-radius: {px(3)};
+    height: {px(6, 4)};
+    max-width: {px(280, 160)};
+}}
+QProgressBar#focusBar::chunk {{
     background-color: #5b8def;
-    border-radius: 3px;
-}
-QFrame#descBox {
+    border-radius: {px(3)};
+}}
+QFrame#descBox {{
     background-color: #eaeaef;
     border: 1px solid #d0d0d8;
-    border-radius: 10px;
-    padding: 14px 18px;
-}
+    border-radius: {px(10, 6)};
+    padding: {px(14, 8)} {px(18, 10)};
+}}
 """
+
+
+# Back-compat aliases (scale 1.0)
+HOME_STYLE = _home_stylesheet(dark=True, scale=1.0)
+LIGHT_HOME_STYLE = _home_stylesheet(dark=False, scale=1.0)
 
 START_BUTTON_STYLE = """
 QPushButton {
@@ -204,25 +218,38 @@ QFrame#descBox {
 """
 
 
+@dataclass
+class _AuroraBlob:
+    """Normalized floating blob for the home aurora background."""
+
+    x: float
+    y: float
+    vx: float
+    vy: float
+    radius: float
+    phase: float
+    speed: float
+    hue_shift: float
+    sat_scale: float
+    alpha: int
+
+
 class EqRingWidget(QWidget):
     """Self-contained circular button that paints its own gradient background,
-    label text, and 48 frequency bars in one paint pass.
+    label text, and a spectrogram ring in one paint pass.
 
     No QPushButton or z-order tricks needed — everything lives in this widget.
+    Geometry scales with the widget size (design reference: 220×220 → r=75).
     """
 
     clicked = pyqtSignal()
     N_BARS = 48
-    SMOOTH_ALPHA = 0.28
-
-    # Geometry — circle is r=75, widget larger for the outward ring
-    _RADIUS = 75
-    _MAX_EXTENT = 38               # max pixels the curve extends beyond the button
-    _N_CURVE = 720                 # high-res points for perfectly smooth curve
-
-    # Gaussian neighbour‑spread
-    _N_NEIGHBOUR = 3
-    _SPREAD = [0.30, 0.20, 0.11, 0.04]
+    DEFAULT_SMOOTHNESS = 0.35
+    _TICK_MS = 16  # ≈60 Hz
+    _DESIGN_SIZE = 220.0
+    _DESIGN_RADIUS = 75.0
+    _DESIGN_EXTENT = 38.0
+    _N_CURVE = 720                 # high-res points for a smooth closed path
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -233,9 +260,22 @@ class EqRingWidget(QWidget):
         self._active = False
         self._smooth: list[float] = [0.0] * self.N_BARS
         self._targets: list[float] = [0.0] * self.N_BARS
+        self._display: list[float] = [0.0] * self.N_BARS
+        self._smoothness = self.DEFAULT_SMOOTHNESS
+        self._apply_smoothness_params(self._smoothness)
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+
+    def _geom(self) -> tuple[float, float, float, float]:
+        """Return (cx, cy, radius, ring_extent) from current widget size."""
+        w, h = float(self.width()), float(self.height())
+        size = min(w, h)
+        scale = size / self._DESIGN_SIZE
+        r = self._DESIGN_RADIUS * scale
+        ext = self._DESIGN_EXTENT * scale
+        return w / 2.0, h / 2.0, r, ext
 
     # ── public API ──
 
@@ -244,7 +284,8 @@ class EqRingWidget(QWidget):
         self._label = label
         self._active = True
         self._smooth = [0.0] * self.N_BARS
-        self._timer.start(30)
+        self._display = [0.0] * self.N_BARS
+        self._timer.start(self._TICK_MS)
         self.update()
 
     def stop_ring(self, label: str = "START") -> None:
@@ -253,19 +294,43 @@ class EqRingWidget(QWidget):
         self._active = False
         self._timer.stop()
         self._smooth = [0.0] * self.N_BARS
+        self._display = [0.0] * self.N_BARS
         self.update()
 
     def set_bands(self, bands: list[float]) -> None:
         clamped = [max(0.0, min(1.0, v)) for v in bands]
         self._targets = clamped if len(clamped) == self.N_BARS else self._targets
 
+    def set_smoothness(self, value: float) -> None:
+        """0 = detailed / spiky waveform; 1 = very soft oval-like lobes."""
+        self._smoothness = max(0.0, min(1.0, float(value)))
+        self._apply_smoothness_params(self._smoothness)
+
+    def _apply_smoothness_params(self, s: float) -> None:
+        # Temporal ease: snappier when detailed, laggy when soft.
+        self._smooth_alpha = 0.34 - s * 0.24
+        # Circular blur width
+        self._n_neighbour = max(1, int(round(1 + s * 6)))
+        # Harmonic cut-off: many modes (detailed) → few modes (oval)
+        self._keep_modes = max(3, int(round(20 - s * 16)))
+        self._harmonic_mix = s  # blend toward harmonic projection
+        self._floor = 0.03 + s * 0.07
+        # Cosine interpolation amount in paint (0=linear, 1=full cosine)
+        self._interp_cosine = s
+        # Precompute a decaying neighbour kernel for current width
+        weights = [1.0]
+        for d in range(1, self._n_neighbour + 1):
+            weights.append(0.55 ** d)
+        total = weights[0] + 2.0 * sum(weights[1:])
+        self._spread = [w / total for w in weights]
+
     # ── events ──
 
     def _in_circle(self, pos) -> bool:
-        """Check whether a point is inside the 75px-radius button circle."""
-        cx, cy = self.width() / 2.0, self.height() / 2.0
+        """Check whether a point is inside the button circle."""
+        cx, cy, r, _ext = self._geom()
         dx, dy = pos.x() - cx, pos.y() - cy
-        return (dx * dx + dy * dy) <= self._RADIUS * self._RADIUS
+        return (dx * dx + dy * dy) <= r * r
 
     def enterEvent(self, event) -> None:  # noqa: N803
         if self._in_circle(event.position()):
@@ -302,53 +367,99 @@ class EqRingWidget(QWidget):
 
     # ── tick + paint ──
 
+    @staticmethod
+    def _circular_harmonic_lowpass(values: list[float], keep_modes: int) -> list[float]:
+        """Project ring samples onto a short Fourier series (sum of sines/cosines)."""
+        n = len(values)
+        if n == 0:
+            return values
+        mean = sum(values) / n
+        recon = [mean] * n
+        modes = min(keep_modes, n // 2)
+        for k in range(1, modes + 1):
+            ck = 0.0
+            sk = 0.0
+            for idx, x in enumerate(values):
+                ang = 2.0 * pi * k * idx / n
+                ck += x * cos(ang)
+                sk += x * sin(ang)
+            ck *= 2.0 / n
+            sk *= 2.0 / n
+            for idx in range(n):
+                ang = 2.0 * pi * k * idx / n
+                recon[idx] += ck * cos(ang) + sk * sin(ang)
+        return [max(0.0, v) for v in recon]
+
     def _tick(self) -> None:
-        a = self.SMOOTH_ALPHA
+        a = self._smooth_alpha
         n = self.N_BARS
         for i in range(n):
             self._smooth[i] += (self._targets[i] - self._smooth[i]) * a
-        # Gaussian neighbour‑spread
-        self._display: list[float] = [0.0] * n
+
+        # Circular blur (width depends on smoothness)
+        blurred = [0.0] * n
         for i in range(n):
-            acc = 0.0
-            for d in range(self._N_NEIGHBOUR + 1):
-                for sign in (+1, -1):
-                    j = (i + sign * d) % n
-                    acc += self._smooth[j] * self._SPREAD[d]
-            self._display[i] = acc
+            acc = self._smooth[i] * self._spread[0]
+            for d in range(1, self._n_neighbour + 1):
+                w = self._spread[d]
+                acc += self._smooth[(i + d) % n] * w
+                acc += self._smooth[(i - d) % n] * w
+            blurred[i] = acc
+
+        def _norm(vals: list[float]) -> list[float]:
+            mx = max(vals) if vals else 0.0
+            if mx <= 1e-6:
+                return [0.0] * len(vals)
+            return [min(1.0, v / mx) for v in vals]
+
+        detailed = _norm(blurred)
+        mix = self._harmonic_mix
+        if mix < 0.02:
+            shaped = detailed
+        else:
+            harmonic = _norm(
+                self._circular_harmonic_lowpass(blurred, self._keep_modes)
+            )
+            shaped = [
+                (1.0 - mix) * d + mix * h for d, h in zip(detailed, harmonic)
+            ]
+            shaped = _norm(shaped)
+
+        floor = self._floor
+        self._display = [floor + (1.0 - floor) * v for v in shaped]
         self.update()
 
     def paintEvent(self, _event) -> None:  # noqa: N803
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        w, h = self.width(), self.height()
-        cx, cy = w / 2.0, h / 2.0
-        r = self._RADIUS
-        ext = self._MAX_EXTENT
+        cx, cy, r, ext = self._geom()
+        scale = r / self._DESIGN_RADIUS if self._DESIGN_RADIUS else 1.0
 
         # ── 1. Continuous polar spectrogram ring ──
         if self._active:
-            amps = getattr(self, '_display', self._smooth)
+            amps = self._display
             n_bands = self.N_BARS
             n_curve = self._N_CURVE
 
-            # Build smooth outer polygon — interpolate 48 bands → 360 points
+            # Cosine-interpolated sampling around the ring → C1-smooth outline
             outer_pts: list[tuple[float, float]] = []
             for k in range(n_curve):
                 angle = 2.0 * pi * k / n_curve
-                # Fractional band index for this angle
                 idx_frac = k / n_curve * n_bands
-                i0 = int(idx_frac)
-                frac = idx_frac - i0
+                i0 = int(idx_frac) % n_bands
+                frac = idx_frac - int(idx_frac)
                 i1 = (i0 + 1) % n_bands
-                amp = amps[i0] * (1.0 - frac) + amps[i1] * frac
+                # Blend linear ↔ cosine interpolation from smoothness setting
+                t_cos = 0.5 - 0.5 * cos(pi * frac)
+                t = (1.0 - self._interp_cosine) * frac + self._interp_cosine * t_cos
+                amp = amps[i0] * (1.0 - t) + amps[i1] * t
                 dist = r + amp * ext
                 outer_pts.append((cx + dist * cos(angle), cy + dist * sin(angle)))
 
             # Inner circle (reversed) to close the ring.
             # Sink 2 px inside the button so the background circle drawn later
             # fully covers the inner seam — no anti-alias gap.
-            inner_r = r - 2
+            inner_r = r - 2 * scale
             inner_pts: list[tuple[float, float]] = []
             for k in range(n_curve - 1, -1, -1):
                 angle = 2.0 * pi * k / n_curve
@@ -373,7 +484,7 @@ class EqRingWidget(QWidget):
             p.drawPath(ring_path)
 
             # Bright outer contour line — closed loop
-            outline_pen = QPen(QColor(255, 80, 50, 160), 1.5,
+            outline_pen = QPen(QColor(255, 80, 50, 160), max(1.0, 1.5 * scale),
                                Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap,
                                Qt.PenJoinStyle.RoundJoin)
             p.setPen(outline_pen)
@@ -386,50 +497,131 @@ class EqRingWidget(QWidget):
             out_path.closeSubpath()
             p.drawPath(out_path)
 
-        # ── 2. Gradient background, clipped to circle ──
+        # ── 2. Translucent liquid-glass disc ──
+        self._paint_liquid_glass(p, cx, cy, r, scale)
+
+        # ── 3. Text label (soft shadow so it stays readable on glass) ──
+        font = p.font()
+        font.setPixelSize(max(12, int(round(20 * scale))))
+        font.setBold(True)
+        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, max(1.0, 2 * scale))
+        p.setFont(font)
+        text_rect_x, text_rect_y = int(cx - r), int(cy - r)
+        text_rect_w, text_rect_h = int(r * 2), int(r * 2)
+        p.setPen(QColor(0, 0, 0, 90))
+        p.drawText(
+            text_rect_x,
+            text_rect_y + max(1, int(round(scale))),
+            text_rect_w,
+            text_rect_h,
+            Qt.AlignmentFlag.AlignCenter,
+            self._label,
+        )
+        p.setPen(QColor(255, 255, 255, 235))
+        p.drawText(
+            text_rect_x,
+            text_rect_y,
+            text_rect_w,
+            text_rect_h,
+            Qt.AlignmentFlag.AlignCenter,
+            self._label,
+        )
+        p.end()
+
+    def _paint_liquid_glass(
+        self, p: QPainter, cx: float, cy: float, r: float, scale: float = 1.0
+    ) -> None:
+        """Frosted translucent orb with specular highlight and soft rim."""
         p.save()
-        clip_path = QPainterPath()
-        clip_path.addEllipse(cx - r, cy - r, r * 2, r * 2)
-        p.setClipPath(clip_path)
+        clip = QPainterPath()
+        clip.addEllipse(cx - r, cy - r, r * 2, r * 2)
+        p.setClipPath(clip)
 
-        bg = QPainterPath()
-        bg.addEllipse(cx - r, cy - r, r * 2, r * 2)
+        hover_boost = 18 if self._hovered and not self._pressed else 0
+        press_dim = 25 if self._pressed else 0
+        a_boost = hover_boost - press_dim
+
         if self._running:
-            top_c, bot_c = QColor(0xE8, 0x70, 0x70), QColor(0xB0, 0x40, 0x40)
-            border_c = QColor(0x80, 0x20, 0x20)
-            if self._hovered:
-                top_c, bot_c = QColor(0xF0, 0x90, 0x90), QColor(0xC0, 0x50, 0x50)
-            if self._pressed:
-                top_c, bot_c = QColor(0xB0, 0x40, 0x40), QColor(0x80, 0x20, 0x20)
+            # Warm red glass
+            c_hi = QColor(255, 170, 155, 105 + a_boost)
+            c_mid = QColor(220, 90, 85, 48 + a_boost // 2)
+            c_lo = QColor(150, 45, 55, 95 + a_boost)
+            rim = QColor(255, 200, 190, 140)
+            edge = QColor(120, 40, 50, 160)
         else:
-            top_c, bot_c = QColor(0x7D, 0xB5, 0xF8), QColor(0x4A, 0x7D, 0xD4)
-            border_c = QColor(0x35, 0x60, 0xA0)
-            if self._hovered:
-                top_c, bot_c = QColor(0x8E, 0xC5, 0xFF), QColor(0x5B, 0x8D, 0xEF)
-            if self._pressed:
-                top_c, bot_c = QColor(0x4A, 0x7D, 0xD4), QColor(0x35, 0x60, 0xA0)
+            # Cool blue glass
+            c_hi = QColor(195, 230, 255, 110 + a_boost)
+            c_mid = QColor(110, 175, 240, 45 + a_boost // 2)
+            c_lo = QColor(55, 115, 200, 90 + a_boost)
+            rim = QColor(220, 240, 255, 150)
+            edge = QColor(60, 110, 180, 150)
 
-        lg = QLinearGradient(cx, cy - r, cx, cy + r)
-        lg.setColorAt(0.0, top_c)
-        lg.setColorAt(1.0, bot_c)
-        p.fillPath(bg, lg)
+        # Body — vertical translucent wash
+        body = QPainterPath()
+        body.addEllipse(cx - r, cy - r, r * 2, r * 2)
+        body_grad = QLinearGradient(cx, cy - r, cx, cy + r)
+        body_grad.setColorAt(0.0, c_hi)
+        body_grad.setColorAt(0.42, c_mid)
+        body_grad.setColorAt(1.0, c_lo)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.fillPath(body, body_grad)
 
-        pen = QPen(border_c, 4)
-        p.setPen(pen)
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawEllipse(int(cx - r), int(cy - r), int(r * 2), int(r * 2))
+        # Soft radial depth (center clearer, rim denser — liquid lens)
+        depth = QRadialGradient(cx, cy - r * 0.15, r * 1.05)
+        depth.setColorAt(0.0, QColor(255, 255, 255, 55 + hover_boost // 2))
+        depth.setColorAt(0.55, QColor(255, 255, 255, 8))
+        depth.setColorAt(1.0, QColor(0, 0, 0, 35 + press_dim // 2))
+        p.fillPath(body, depth)
+
+        # Specular highlight — elongated top sheen
+        shine = QPainterPath()
+        shine.addEllipse(
+            cx - r * 0.62,
+            cy - r * 0.78,
+            r * 1.24,
+            r * 0.72,
+        )
+        shine_grad = QLinearGradient(cx, cy - r * 0.85, cx, cy - r * 0.05)
+        shine_grad.setColorAt(0.0, QColor(255, 255, 255, 150 if self._hovered else 115))
+        shine_grad.setColorAt(0.45, QColor(255, 255, 255, 35))
+        shine_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
+        p.fillPath(shine, shine_grad)
+
+        # Thin bright crescent near the top rim
+        o_inset = 3.0 * scale
+        i_inset_x = 10.0 * scale
+        i_inset_y = 14.0 * scale
+        outer = QPainterPath()
+        outer.addEllipse(
+            cx - r + o_inset,
+            cy - r + o_inset,
+            (r - o_inset) * 2,
+            (r - o_inset) * 2,
+        )
+        inner = QPainterPath()
+        inner.addEllipse(
+            cx - r + i_inset_x,
+            cy - r + i_inset_y,
+            (r - i_inset_x) * 2,
+            (r - 8.0 * scale) * 2,
+        )
+        crescent = outer.subtracted(inner)
+        p.fillPath(crescent, QColor(255, 255, 255, 70 if self._hovered else 45))
+
         p.restore()
 
-        # ── 3. Text label ──
-        p.setPen(QColor(255, 255, 255))
-        font = p.font()
-        font.setPixelSize(20)
-        font.setBold(True)
-        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 2)
-        p.setFont(font)
-        p.drawText(int(cx - r), int(cy - r), int(r * 2), int(r * 2),
-                   Qt.AlignmentFlag.AlignCenter, self._label)
-        p.end()
+        # Outer glass rim (drawn outside clip so AA stays clean)
+        rim_pen = QPen(rim, max(1.2, 2.2 * scale))
+        rim_pen.setCosmetic(True)
+        p.setPen(rim_pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(QRectF(cx - r + 1.0 * scale, cy - r + 1.0 * scale,
+                             (r - 1.0 * scale) * 2, (r - 1.0 * scale) * 2))
+
+        edge_pen = QPen(edge, max(1.0, 1.4 * scale))
+        p.setPen(edge_pen)
+        p.drawEllipse(QRectF(cx - r + 0.5 * scale, cy - r + 0.5 * scale,
+                             (r - 0.5 * scale) * 2, (r - 0.5 * scale) * 2))
 
 
 class HomePage(QWidget):
@@ -437,23 +629,42 @@ class HomePage(QWidget):
 
     action_toggled = pyqtSignal(bool)  # True=start, False=stop
 
+    # Design reference for responsive layout (content area ~590×520 at min window)
+    _REF_W = 590.0
+    _REF_H = 520.0
+    _BTN_DESIGN = 220
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("homePage")
-        self.setStyleSheet(HOME_STYLE)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self._running = False
+        self._dark = True
+        self._layout_scale = 1.0
+        self._aurora_color = QColor(DEFAULT_STATUS_COLORS["unknown"])
+        self._aurora_target = QColor(self._aurora_color)
+        self._blobs = self._make_blobs(seed=7)
+        self._aurora_timer = QTimer(self)
+        self._aurora_timer.timeout.connect(self._tick_aurora)
+        self._aurora_timer.start(33)  # ~30 fps drift — soft screensaver pace
 
-        root = QVBoxLayout(self)
-        root.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root.setContentsMargins(32, 32, 32, 32)
-        root.setSpacing(12)
+        self._root = QVBoxLayout(self)
+        self._root.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._root.setContentsMargins(32, 32, 32, 32)
+        self._root.setSpacing(12)
+
+        self._root.addStretch(1)
 
         # ── Top area: QStackedWidget (motto ↔ focus bar + theme) ──
         self._top_stack = QStackedWidget()
         self._top_stack.setFixedHeight(80)
+        self._top_stack.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self._top_stack.setStyleSheet("background: transparent;")
 
         # Page 0: Motto
         motto_w = QWidget()
+        motto_w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        motto_w.setStyleSheet("background: transparent;")
         motto_l = QVBoxLayout(motto_w)
         motto_l.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._motto = QLabel("Your Focus, Amplified by Sound")
@@ -464,9 +675,11 @@ class HomePage(QWidget):
 
         # Page 1: Focus bar + theme label
         status_w = QWidget()
-        status_l = QVBoxLayout(status_w)
-        status_l.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        status_l.setSpacing(8)
+        status_w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        status_w.setStyleSheet("background: transparent;")
+        self._status_layout = QVBoxLayout(status_w)
+        self._status_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._status_layout.setSpacing(8)
 
         focus_row = QHBoxLayout()
         focus_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -484,33 +697,32 @@ class HomePage(QWidget):
         focus_row.addWidget(self._focus_bar)
         focus_row.addSpacing(8)
         focus_row.addWidget(self._focus_pct)
-        status_l.addLayout(focus_row)
+        self._status_layout.addLayout(focus_row)
 
         self._theme_label = QLabel("")
         self._theme_label.setObjectName("themeLabel")
         self._theme_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        status_l.addWidget(self._theme_label)
+        self._status_layout.addWidget(self._theme_label)
 
         self._music_detail = QLabel("")
         self._music_detail.setObjectName("descriptionLabel")
         self._music_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._music_detail.setWordWrap(True)
-        status_l.addWidget(self._music_detail)
+        self._status_layout.addWidget(self._music_detail)
 
         self._top_stack.addWidget(status_w)  # index 1
 
-        root.addWidget(self._top_stack, alignment=Qt.AlignmentFlag.AlignCenter)
+        self._root.addWidget(self._top_stack, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # ── Center: circular button with outward EQ bars (needs extra canvas) ──
-        BTN_SZ = 220  # larger than the 150px circle to give bars room
         self._eq_ring = EqRingWidget()
-        self._eq_ring.setFixedSize(BTN_SZ, BTN_SZ)
+        self._eq_ring.setFixedSize(self._BTN_DESIGN, self._BTN_DESIGN)
         self._eq_ring.clicked.connect(self._on_action)
 
         btn_container = QHBoxLayout()
         btn_container.setAlignment(Qt.AlignmentFlag.AlignCenter)
         btn_container.addWidget(self._eq_ring)
-        root.addLayout(btn_container)
+        self._root.addLayout(btn_container)
 
         # ── Bottom: full product description, boxed, left-aligned ──
         self._desc_box = QFrame()
@@ -528,9 +740,166 @@ class HomePage(QWidget):
         desc_container = QHBoxLayout()
         desc_container.setAlignment(Qt.AlignmentFlag.AlignCenter)
         desc_container.addWidget(self._desc_box)
-        root.addLayout(desc_container)
+        self._root.addLayout(desc_container)
 
-        root.addStretch()
+        self._root.addStretch(1)
+
+        self.setStyleSheet(_home_stylesheet(dark=True, scale=1.0))
+        self._desc_box.setStyleSheet(DESC_BOX_STYLE)
+        self._apply_layout_scale(force=True)
+
+    def resizeEvent(self, event) -> None:  # noqa: N803
+        super().resizeEvent(event)
+        self._apply_layout_scale()
+
+    def _compute_layout_scale(self) -> float:
+        w = max(float(self.width()), 1.0)
+        h = max(float(self.height()), 1.0)
+        raw = min(w / self._REF_W, h / self._REF_H)
+        # Keep readable at small sizes; grow on fullscreen / large monitors
+        return max(0.88, min(2.4, raw))
+
+    def _apply_layout_scale(self, *, force: bool = False) -> None:
+        scale = self._compute_layout_scale()
+        if not force and abs(scale - self._layout_scale) < 0.02:
+            return
+        self._layout_scale = scale
+
+        m = max(16, int(round(32 * scale)))
+        self._root.setContentsMargins(m, m, m, m)
+        self._root.setSpacing(max(8, int(round(12 * scale))))
+        self._status_layout.setSpacing(max(4, int(round(8 * scale))))
+
+        top_h = max(64, int(round(80 * scale)))
+        # Running status can wrap music detail — give a bit more room when scaled up
+        if self._running:
+            top_h = max(top_h, int(round(110 * scale)))
+        self._top_stack.setFixedHeight(top_h)
+
+        btn = max(160, int(round(self._BTN_DESIGN * scale)))
+        self._eq_ring.setFixedSize(btn, btn)
+
+        self._focus_bar.setFixedWidth(max(160, int(round(240 * scale))))
+        desc_w = min(max(280, int(round(520 * scale))), max(280, self.width() - 2 * m))
+        self._desc_box.setMaximumWidth(desc_w)
+
+        self.setStyleSheet(_home_stylesheet(dark=self._dark, scale=scale))
+        # Desc box has its own stylesheet for theme; keep border padding in sync via object stylesheet
+        self._desc_box.setStyleSheet(
+            DESC_BOX_STYLE if self._dark else LIGHT_DESC_BOX_STYLE
+        )
+        self._eq_ring.update()
+    # ── Aurora background ───────────────────────────────────────
+
+    @staticmethod
+    def _make_blobs(seed: int = 7) -> list[_AuroraBlob]:
+        rng = Random(seed)
+        blobs: list[_AuroraBlob] = []
+        for _ in range(6):
+            blobs.append(
+                _AuroraBlob(
+                    x=rng.uniform(0.1, 0.9),
+                    y=rng.uniform(0.1, 0.9),
+                    vx=rng.uniform(-0.012, 0.012),
+                    vy=rng.uniform(-0.010, 0.010),
+                    radius=rng.uniform(0.28, 0.52),
+                    phase=rng.uniform(0.0, 2.0 * pi),
+                    speed=rng.uniform(0.25, 0.55),
+                    hue_shift=rng.uniform(-18.0, 18.0),
+                    sat_scale=rng.uniform(0.55, 0.95),
+                    alpha=rng.randint(28, 52),
+                )
+            )
+        return blobs
+
+    def set_aurora_color(self, hex_color: str) -> None:
+        """Retarget aurora blobs to the active task / status colour (soft ease)."""
+        c = QColor(hex_color)
+        if not c.isValid():
+            return
+        self._aurora_target = c
+
+    def _tick_aurora(self) -> None:
+        # Ease theme colour (fast enough to feel responsive on context change)
+        cur, tgt = self._aurora_color, self._aurora_target
+        self._aurora_color = QColor(
+            int(cur.red() + (tgt.red() - cur.red()) * 0.12),
+            int(cur.green() + (tgt.green() - cur.green()) * 0.12),
+            int(cur.blue() + (tgt.blue() - cur.blue()) * 0.12),
+        )
+        dt = 0.033
+        for blob in self._blobs:
+            blob.phase += blob.speed * dt
+            # Soft horizontal drift + vertical sine sway (aurora curtains)
+            blob.x += blob.vx * dt * 8.0
+            blob.y += blob.vy * dt * 8.0 + 0.004 * sin(blob.phase)
+            if blob.x < -0.15 or blob.x > 1.15:
+                blob.vx *= -1.0
+                blob.x = max(-0.15, min(1.15, blob.x))
+            if blob.y < -0.15 or blob.y > 1.15:
+                blob.vy *= -1.0
+                blob.y = max(-0.15, min(1.15, blob.y))
+        self.update()
+
+    def paintEvent(self, _event) -> None:  # noqa: N803
+        """Paint dim base + faint floating colour blobs (screensaver / aurora)."""
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = max(self.width(), 1), max(self.height(), 1)
+
+        if self._dark:
+            base = QColor(0x1A, 0x1A, 0x1E)
+        else:
+            base = QColor(0xF5, 0xF5, 0xF8)
+        p.fillRect(self.rect(), base)
+
+        # Subtle vertical wash so blobs feel layered in depth
+        wash = QLinearGradient(0, 0, 0, h)
+        theme = QColor(self._aurora_color)
+        if self._dark:
+            wash.setColorAt(0.0, QColor(theme.red(), theme.green(), theme.blue(), 22))
+            wash.setColorAt(0.55, QColor(theme.red(), theme.green(), theme.blue(), 8))
+            wash.setColorAt(1.0, QColor(0, 0, 0, 40))
+        else:
+            wash.setColorAt(0.0, QColor(theme.red(), theme.green(), theme.blue(), 28))
+            wash.setColorAt(0.6, QColor(theme.red(), theme.green(), theme.blue(), 10))
+            wash.setColorAt(1.0, QColor(255, 255, 255, 0))
+        p.fillRect(self.rect(), wash)
+
+        scale = float(min(w, h))
+        for blob in self._blobs:
+            pulse = 0.85 + 0.15 * sin(blob.phase)
+            rad = blob.radius * scale * pulse
+            cx = blob.x * w
+            cy = blob.y * h
+
+            c = QColor(self._aurora_color)
+            h_deg, s, v, _a = c.getHsvF()
+            if h_deg < 0:
+                h_deg = 0.0
+            h_deg = (h_deg + blob.hue_shift / 360.0) % 1.0
+            s = min(1.0, max(0.0, s * blob.sat_scale + (0.15 if self._dark else 0.05)))
+            v = min(1.0, v * (1.05 if self._dark else 0.92))
+            c.setHsvF(h_deg, s, v)
+
+            alpha = blob.alpha if self._dark else int(blob.alpha * 0.55)
+            breath = 0.75 + 0.25 * sin(blob.phase * 0.7)
+            alpha = int(alpha * breath)
+
+            grad = QRadialGradient(cx, cy, rad)
+            grad.setColorAt(0.0, QColor(c.red(), c.green(), c.blue(), alpha))
+            grad.setColorAt(0.35, QColor(c.red(), c.green(), c.blue(), int(alpha * 0.45)))
+            grad.setColorAt(0.7, QColor(c.red(), c.green(), c.blue(), int(alpha * 0.12)))
+            grad.setColorAt(1.0, QColor(c.red(), c.green(), c.blue(), 0))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(grad)
+            p.drawEllipse(
+                int(cx - rad),
+                int(cy - rad),
+                int(rad * 2),
+                int(rad * 2),
+            )
+        p.end()
 
     # ── Slots / Public API ──────────────────────────────────────
 
@@ -549,10 +918,15 @@ class HomePage(QWidget):
         else:
             self._eq_ring.stop_ring("START")
             self._top_stack.setCurrentIndex(0)
+        self._apply_layout_scale(force=True)
 
     def set_frequency_bands(self, bands: list[float]) -> None:
         """Forward real-time frequency-band amplitudes to the EQ ring."""
         self._eq_ring.set_bands(bands)
+
+    def set_waveform_smoothness(self, value: float) -> None:
+        """Forward Settings slider (0–1) to the EQ ring."""
+        self._eq_ring.set_smoothness(value)
 
     def update_status(
         self,
@@ -561,8 +935,14 @@ class HomePage(QWidget):
         focus_score: float,
         music_state: str = "",
         music_detail: str = "",
+        theme_color: str = "",
     ) -> None:
-        """Refresh focus bar, theme, and music detail (called ~1 Hz while running)."""
+        """Refresh focus UI (while running) and always retint the aurora."""
+        color = theme_color or DEFAULT_STATUS_COLORS.get(
+            context.value, DEFAULT_STATUS_COLORS["unknown"]
+        )
+        self.set_aurora_color(color)
+
         if not self._running:
             return
 
@@ -595,5 +975,5 @@ class HomePage(QWidget):
     def set_dark_mode(self, enabled: bool) -> None:
         """Apply dark / light stylesheet on the home page."""
         self._dark = enabled
-        self.setStyleSheet(HOME_STYLE if enabled else LIGHT_HOME_STYLE)
-        self._desc_box.setStyleSheet(DESC_BOX_STYLE if enabled else LIGHT_DESC_BOX_STYLE)
+        self._apply_layout_scale(force=True)
+        self.update()

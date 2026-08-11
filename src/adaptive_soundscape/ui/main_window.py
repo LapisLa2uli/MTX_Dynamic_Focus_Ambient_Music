@@ -175,7 +175,9 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(780, 540)
         self._dark = True
         self._current_nav_index = 0
-        self._status_colors = {}
+        from adaptive_soundscape.ui.settings_page import DEFAULT_STATUS_COLORS
+
+        self._status_colors = dict(DEFAULT_STATUS_COLORS)
         self._status_tint: str | None = None
         self._applying_tint = False
         self.setStyleSheet(DARK_STYLE)
@@ -321,15 +323,15 @@ class MainWindow(QMainWindow):
         return self._dark
 
     def _on_status_colors(self, colors: dict[str, str]) -> None:
-        """Store the latest per-status colour map."""
+        """Store the latest per-status colour map (Home aurora follows context)."""
         self._status_colors.update(colors)
 
     def _apply_page_tint(self) -> None:
-        """Re-apply the stored status tint on all pages."""
+        """Re-apply the stored status tint on Upload/Settings (Home uses aurora)."""
         if self._status_tint is None:
             return
         self._applying_tint = True
-        for page in (self._home_page, self._upload_page, self._settings_page):
+        for page in (self._upload_page, self._settings_page):
             style = page.styleSheet() or ""
             style = style.rstrip()
             # Remove any previously appended background-color override
@@ -343,11 +345,13 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def update_status_background(self, profile_id: str) -> None:
-        """Tint the central widget background to match the active status colour."""
-        hex_color = self._status_colors.get(profile_id)
-        if hex_color is None:
-            self._status_tint = None
-            return
+        """Tint Upload/Settings and drive Home aurora from the status colour."""
+        from adaptive_soundscape.ui.settings_page import DEFAULT_STATUS_COLORS
+
+        hex_color = self._status_colors.get(profile_id) or DEFAULT_STATUS_COLORS.get(
+            profile_id, DEFAULT_STATUS_COLORS["unknown"]
+        )
+        self._home_page.set_aurora_color(hex_color)
         if self._dark:
             base_r, base_g, base_b = 26, 26, 32
         else:
@@ -385,11 +389,17 @@ class MainWindow(QMainWindow):
         music_detail: str = "",
     ) -> None:
         del focus_state, profile_name
+        from adaptive_soundscape.ui.settings_page import DEFAULT_STATUS_COLORS
+
+        theme_color = self._status_colors.get(context.value) or DEFAULT_STATUS_COLORS.get(
+            context.value, DEFAULT_STATUS_COLORS["unknown"]
+        )
         self._home_page.update_status(
             context=context,
             focus_score=focus_score,
             music_state=music_state,
             music_detail=music_detail,
+            theme_color=theme_color,
         )
 
     @property
