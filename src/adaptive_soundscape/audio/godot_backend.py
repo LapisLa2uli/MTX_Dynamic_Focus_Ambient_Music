@@ -48,6 +48,26 @@ class GodotAudioBackend:
     def is_playing(self) -> bool:
         return self._playing
 
+    @property
+    def current_level(self) -> float:
+        """Estimated audio level. Godot sidecar does not stream audio levels;
+        return a moderate default so the visualiser still animates."""
+        return 0.35 if self._playing else 0.0
+
+    @property
+    def current_bands(self) -> list[float]:
+        """Simulated 48-band spectrum. Godot does not stream freq data so
+        we generate a gentle pseudo‑spectrum that oscillates for visual interest."""
+        if not self._playing:
+            return [0.0] * 48
+        import math, time
+        t = time.time()
+        return [
+            0.25 + 0.15 * math.sin(3.7 * t + i * 0.31)
+            + 0.08 * math.cos(5.1 * t - i * 0.17)
+            for i in range(48)
+        ]
+
     def start(self, profile_id: str | None = None) -> None:
         if self._playing:
             return

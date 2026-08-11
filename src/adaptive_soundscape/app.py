@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QApplication
 
 from adaptive_soundscape.activity.monitor import ActivityMonitor
 from adaptive_soundscape.audio.factory import create_audio_backend
@@ -37,6 +38,7 @@ from adaptive_soundscape.ui.album_manager import AlbumManagerDialog
 from adaptive_soundscape.ui.category_editor import CategoryEditorDialog
 from adaptive_soundscape.ui.inference_toast import InferenceToast
 from adaptive_soundscape.ui.main_window import MainWindow
+from adaptive_soundscape.ui.settings_page import DEFAULT_STATUS_COLORS
 
 logger = logging.getLogger(__name__)
 
@@ -93,28 +95,41 @@ class AdaptiveSoundscapeApp:
         self._dismissed_processes: set[str] = set()
         self._last_process_key = ""
 
-        # Sync initial volume UI with config
-        vol = int(self.settings.adaptive_music.master_volume * 100)
-        self.window._volume_slider.setValue(vol)
+        # Sync initial volume with config / Settings page
         self.director.set_volume(self.settings.adaptive_music.master_volume)
+        self.window.settings_page.set_volume(self.settings.adaptive_music.master_volume)
+        self.window.settings_page.set_threshold(self.settings.cognitive.sensitivity)
 
         interval = self.settings.app.poll_interval_ms
         self._timer = QTimer()
         self._timer.setInterval(interval)
         self._timer.timeout.connect(self._tick)
 
-        self.window._audio_btn.clicked.connect(self._toggle_audio)
-        self.window._categories_btn.clicked.connect(self._open_category_editor)
-        self.window._albums_btn.clicked.connect(self._open_album_manager)
+        self.window.upload_page.set_assets_dir(assets)
+        self.window.upload_page.soundtrack_changed.connect(self._on_albums_changed)
+
+        self.window.home_page.action_toggled.connect(self._toggle_audio)
+        self.window.categories_clicked.connect(self._open_category_editor)
+        self.window.albums_clicked.connect(self._open_album_manager)
         self.window._override_check.toggled.connect(self._on_override)
         self.window._sensitivity_spin.valueChanged.connect(self._on_sensitivity)
-        self.window._volume_slider.valueChanged.connect(self._on_volume)
-        self.window._mute_check.toggled.connect(self._on_mute)
         for chk in (self.window._title_check, self.window._process_check, self.window._log_check):
             chk.toggled.connect(self._on_privacy)
 
         self._toast.confirmed.connect(self._on_inference_confirmed)
         self._toast.dismissed.connect(self._on_inference_dismissed)
+
+        # ── Settings page signals ──
+        sp = self.window.settings_page
+        sp.volume_changed.connect(self._on_volume_changed)
+        sp.threshold_changed.connect(self._on_sensitivity)
+        sp.main_theme_changed.connect(self._on_main_theme_changed)
+        sp.quit_requested.connect(QApplication.instance().quit)
+        sp.reset_requested.connect(self._on_reset_settings)
+        sp.status_colors_changed.connect(self._on_status_colors_changed)
+
+        self._main_theme = "unknown"
+        self._status_colors = dict(DEFAULT_STATUS_COLORS)
 
         self.bus.subscribe(ActivitySnapshot, self._on_activity)
         self.bus.subscribe(ContextChanged, self._on_context)
@@ -139,11 +154,11 @@ class AdaptiveSoundscapeApp:
         self.director.shutdown()
         self._toast.hide()
 
-    def _toggle_audio(self) -> None:
+    def _toggle_audio(self, _trigger: bool | None = None) -> None:
         if self._audio_running:
             self.director.pause()
             self._audio_running = False
-            self.window._audio_btn.setText("Start Audio")
+            self.window.home_page.set_running(False)
             self.window.set_status_message("")
             self._refresh_ui()
             return
@@ -175,20 +190,22 @@ class AdaptiveSoundscapeApp:
                 except Exception as fallback_exc:
                     logger.exception("Placeholder audio fallback failed")
                     self.window.set_status_message(f"Audio error: {fallback_exc}")
+                    self.window.home_page.set_running(False)
                     return
             else:
                 self.window.set_status_message(f"Audio error: {exc}")
+                self.window.home_page.set_running(False)
                 return
         self._audio_running = True
         self._active_profile_id = decision.profile_id
-        self.window._audio_btn.setText("Stop Audio")
+        self.window.home_page.set_running(True)
         self._publish_audio_params(decision)
         self._refresh_ui(decision.display_name)
 
     def _bind_director_backend(self, backend) -> None:
         self.director.backend = backend
-        self.director.set_volume(self.window._volume_slider.value() / 100.0)
-        self.director.set_muted(self.window._mute_check.isChecked())
+        self.director.set_volume(self.settings.adaptive_music.master_volume)
+        self.director.set_muted(False)
 
     def _placeholder_settings(self) -> Settings:
         """Return settings forced to the placeholder mixer backend."""
@@ -197,6 +214,11 @@ class AdaptiveSoundscapeApp:
                 "audio": self.settings.audio.model_copy(update={"backend": "placeholder"})
             }
         )
+
+    def _invalidate_audio_caches(self) -> None:
+        invalidate = getattr(self.audio, "invalidate_caches", None)
+        if callable(invalidate):
+            invalidate()
 
     def _open_category_editor(self) -> None:
         updated = CategoryEditorDialog.edit(self.user_mappings, self.window)
@@ -214,14 +236,17 @@ class AdaptiveSoundscapeApp:
         changed = AlbumManagerDialog.run(assets, self.window)
         if not changed:
             return
-        invalidate = getattr(self.audio, "invalidate_caches", None)
-        if callable(invalidate):
-            invalidate()
+        self._invalidate_audio_caches()
         if self._audio_running:
             self.director.set_scenario(self._active_profile_id, self._focus_score)
         self.window.set_status_message(
             "Album updated. Intensity loops apply on the next music transition."
         )
+
+    def _on_albums_changed(self) -> None:
+        self._invalidate_audio_caches()
+        if self._audio_running:
+            self.director.set_scenario(self._active_profile_id, self._focus_score)
 
     def _on_override(self, enabled: bool) -> None:
         self._manual_override = enabled
@@ -234,14 +259,42 @@ class AdaptiveSoundscapeApp:
             self._apply_audio(decision)
             self._toast.hide()
 
+    def _on_volume_changed(self, value: float) -> None:
+        """Handle master volume slider change from settings page."""
+        self.audio.master_volume = value
+        self.settings.audio.master_volume = value
+        self.settings.adaptive_music.master_volume = value
+        self.director.set_volume(value)
+
+    def _on_main_theme_changed(self, theme: str) -> None:
+        """Store the user-selected main/default theme preference."""
+        self._main_theme = theme
+        logger.info("Main theme set to %s", theme)
+
+    def _on_status_colors_changed(self, colors: dict[str, str]) -> None:
+        """Store updated per-status colours from the settings page."""
+        self._status_colors.update(colors)
+        logger.info("Status colours updated")
+
+    def _on_reset_settings(self) -> None:
+        """Reset all settings to factory defaults."""
+        defaults = Settings()
+        self.settings.audio.master_volume = defaults.audio.master_volume
+        self.settings.cognitive.sensitivity = defaults.cognitive.sensitivity
+        self.audio.master_volume = defaults.audio.master_volume
+        self.estimator.sensitivity = defaults.cognitive.sensitivity
+        self._main_theme = "unknown"
+        self._status_colors = dict(DEFAULT_STATUS_COLORS)
+        self.window.settings_page.set_volume(defaults.audio.master_volume)
+        self.window.settings_page.set_threshold(defaults.cognitive.sensitivity)
+        self.window.settings_page.set_main_theme("unknown")
+        self.window.settings_page.set_status_colors(dict(DEFAULT_STATUS_COLORS))
+        self.director.set_volume(defaults.audio.master_volume)
+        self.window.update_status_background("unknown")
+        logger.info("Settings reset to defaults")
+
     def _on_sensitivity(self, value: float) -> None:
         self.estimator.sensitivity = value
-
-    def _on_volume(self, value: int) -> None:
-        self.director.set_volume(value / 100.0)
-
-    def _on_mute(self, muted: bool) -> None:
-        self.director.set_muted(muted)
 
     def _on_privacy(self, _checked: bool) -> None:
         titles, processes, log_activity = self.window.privacy_settings()
@@ -300,6 +353,10 @@ class AdaptiveSoundscapeApp:
             # Intensity adapts continuously inside the active song.
             self.director.update_intensity(estimate.focus_score)
             self.director.set_parameters(decision.parameters)
+
+        if self._audio_running:
+            bands = getattr(self.audio, 'current_bands', [0.0] * 48)
+            self.window.home_page.set_frequency_bands(bands)
 
         self._refresh_ui(decision.display_name)
         self.monitor.reset_window_switches()
@@ -430,6 +487,10 @@ class AdaptiveSoundscapeApp:
             music_state=_MUSIC_STATE_LABELS.get(state, state.value),
             music_detail=" · ".join(detail_parts),
         )
+        # Update background colour based on current status
+        profile_id = self._current_context.value
+        if profile_id in self._status_colors:
+            self.window.update_status_background(profile_id)
 
 
 def _process_key(process_name: str) -> str:
