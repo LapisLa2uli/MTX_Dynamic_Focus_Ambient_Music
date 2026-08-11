@@ -3,3 +3,6 @@ dist/
 config/user_context_mappings.json
 *.pyc
 __pycache__/
+services/musicgen_api/model_cache/
+
+services/musicgen_api/outputs/

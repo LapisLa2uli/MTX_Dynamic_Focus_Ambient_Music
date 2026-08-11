@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
 
 from adaptive_soundscape.audio.parameters import AudioParameters
@@ -24,6 +25,27 @@ class AudioBackend(Protocol):
         duration_seconds: float,
         params: AudioParameters | None = None,
     ) -> None: ...
+
+    def crossfade_to_track(
+        self,
+        path: Path,
+        duration_seconds: float,
+        params: AudioParameters | None = None,
+    ) -> None: ...
+
+    def load_stem_pack(
+        self,
+        layers: dict[str, Path],
+        crossfade_seconds: float = 0.0,
+    ) -> None: ...
+
+    def set_layer_gains(
+        self,
+        gains: dict[str, float],
+        slew_seconds: float = 1.0,
+    ) -> None: ...
+
+    def set_master_volume(self, volume: float) -> None: ...
 
     @property
     def is_playing(self) -> bool: ...

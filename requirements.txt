@@ -1,8 +1,9 @@
 # Adaptive Cognitive Soundscape — MTX conda env dependencies
 # Install with: pip install --no-user -r requirements.txt -e .
-PyQt6==6.11.0
-PyQt6-Qt6==6.11.1
-PyQt6-sip==13.11.1
+# 6.11.x can fail Qt DLL load on some Windows/conda setups (WinError 127).
+PyQt6==6.8.1
+PyQt6-Qt6==6.8.2
+PyQt6-sip==13.10.0
 pywin32==311
 pynput==1.8.2
 psutil==7.2.2

@@ -47,7 +47,7 @@ Download and install [Miniconda](https://docs.conda.io/en/latest/miniconda.html)
 ### 2. Clone or open this project
 
 ```powershell
-cd "D:\stuff\Adaptive Focus Music System"
+cd "D:\stuff\MTX\Adaptive Focus Music System"
 ```
 
 ### 3. Create the Python environment
@@ -129,13 +129,13 @@ Edit [`config/default.yaml`](config/default.yaml):
 ```yaml
 audio:
   backend: godot                    # switch from placeholder to godot
-  godot_executable: "D:/stuff/Adaptive Focus Music System/Godot_v4.6.3-stable_win64.exe"
+  godot_executable: "D:/stuff/MTX/Adaptive Focus Music System/Godot_v4.6.3-stable_win64.exe"
   godot_project: godot
   godot_port: 8765
   fallback_to_placeholder: true     # use built-in mixer if Godot fails
 ```
 
-Use **forward slashes** in the path (works on Windows). Replace `D:/stuff/Adaptive Focus Music System` with the absolute path to **your** clone of this repo.
+Use **forward slashes** in the path (works on Windows). Replace `D:/stuff/MTX/Adaptive Focus Music System` with the absolute path to **your** clone of this repo.
 
 Example if your project lives at `C:\Users\You\Projects\Adaptive Focus Music System`:
 
@@ -149,7 +149,7 @@ Leave `backend: placeholder` if you do not install Godot — the app works witho
 
 - Environment variable (PowerShell, current session):
   ```powershell
-  $env:GODOT4 = "D:\stuff\Adaptive Focus Music System\Godot_v4.6.3-stable_win64.exe"
+  $env:GODOT4 = "D:\stuff\MTX\Adaptive Focus Music System\Godot_v4.6.3-stable_win64.exe"
   ```
 - Add Godot’s folder to your system `PATH` (then `godot_executable` can stay empty if `godot` is found automatically)
 
@@ -157,59 +157,90 @@ If Godot fails to start, leave `fallback_to_placeholder: true` and the app will 
 
 ---
 
-## Audio assets
+## Adaptive music (nested intensity)
 
-Place sound files in `assets/audio/`. Supported formats: **`.mp3`**, **`.wav`** (and `.ogg` in Godot only).
+Music adapts in two nested layers:
 
-### Profile file names
+1. **Work scenario** (programming, reading, …) selects a scenario **album**.
+2. Within that album, a **song family** is chosen at random. Each song has compatible loop variants for concentration intensity:
+   - `calm` — low `focus_score`
+   - `focus` — moderate
+   - `deep_focus` — high
+   - `recovery` — optional, after leaving deep focus
 
-Each work context maps to a profile ID:
+The authoritative concentration signal is `FocusEstimator.focus_score` ∈ `[0, 1]` (already EMA-smoothed). `MusicDirector` applies hysteresis + a short hold time so states do not thrash.
 
-| Context | File stem |
-|---------|-----------|
-| Programming | `programming` |
-| Team / workflow | `team_workflow` |
-| Reading / writing | `reading_writing` |
-| Scientific | `scientific` |
-| Creative / design | `creative_design` |
-| Distraction recovery | `distraction` |
-| Unknown / neutral | `unknown` |
+### Thresholds (`config/default.yaml` → `adaptive_music`)
 
-**Flat layout (default, recommended)**
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `enter_focus` | 0.40 | Rise into Focus |
+| `enter_deep_focus` | 0.70 | Rise into Deep Focus |
+| `leave_deep_focus` | 0.60 | Drop out of Deep Focus |
+| `leave_focus` | 0.30 | Drop out of Focus → Calm |
+| `min_state_seconds` | 3.0 | Debounce / minimum hold |
+| `recovery_seconds` | 10.0 | Optional recovery hold |
+| `default_crossfade_ms` | 1500 | Crossfade when no transition clip |
+| `intensity_smoothing` | 0.70 | Extra EMA for music state only |
 
-```
-assets/audio/
-  programming.mp3          # main loop
-  programming_pad.wav      # softer underlayer (optional)
-  reading_writing.mp3
-  ...
-```
-
-With `prefer_mp3: true` (default), the app plays your **MP3** files instead of auto-generated synthetic WAV placeholders.
-
-**Layered layout (Godot, optional)**
+### Asset layout + manifest
 
 ```
 assets/audio/
   programming/
-    ambient.wav
-    rhythm.wav
-    harmonic.wav
-    accent.wav
+    programming_01/
+      manifest.json
+      calm/calm_01.wav
+      focus/focus_01.wav
+      deep_focus/deep_focus_01.wav
+      recovery/            # optional
+      transitions/         # optional calm_to_focus.wav etc.
 ```
 
-See [`godot/README.md`](godot/README.md) for the Godot sidecar API and stem details.
+Example `manifest.json`:
 
-### Generate placeholder tones (optional)
+```json
+{
+  "songId": "programming_01",
+  "bpm": 70,
+  "timeSignature": "4/4",
+  "barsPerLoop": 8,
+  "crossfadeMs": 1500,
+  "states": {
+    "calm": { "tracks": [{ "id": "calm_01", "src": "calm/calm_01.wav" }] },
+    "focus": { "tracks": [{ "id": "focus_01", "src": "focus/focus_01.wav" }] },
+    "deepFocus": { "tracks": [{ "id": "deep_focus_01", "src": "deep_focus/deep_focus_01.wav" }] },
+    "recovery": { "tracks": [] }
+  },
+  "transitions": {}
+}
+```
 
-If you have no music files yet, the app can create simple synthetic loops:
+Supported formats: **`.mp3`**, **`.wav`** (and `.ogg` in Godot). Use **Manage Albums** to upload/delete loops per intensity, or edit folders manually.
+
+Migrate legacy flat tracks into song families:
 
 ```powershell
 conda activate MTX
-python scripts/generate_audio_assets.py       # mains + pads (skip existing)
-python scripts/generate_pad_assets.py           # pads only
-python scripts/generate_pad_assets.py --force   # regenerate all pads
+python scripts/migrate_albums.py
 ```
+
+### Adding a new song family
+
+1. Create `assets/audio/{scenario}/{song_id}/` with `calm/`, `focus/`, `deep_focus/` loops that are **musically compatible**.
+2. Add `manifest.json` (copy an existing one and update `src` paths).
+3. Optionally add `transitions/{from}_to_{to}.wav` and list them under `transitions` in the manifest.
+
+### UI controls
+
+- **Start Audio** — enables adaptive playback (required before any sound).
+- **Music State** card — Calm / Focus / Deep Focus / Recovery (+ song/loop ids).
+- **Music volume** slider and **Mute**.
+- **Manage Albums** — per-scenario song + intensity uploads.
+
+### Generate placeholder tones (optional)
+
+If an album is empty, the app synthesizes a simple loop and wraps it as a song family on startup.
 
 ---
 
@@ -217,7 +248,7 @@ python scripts/generate_pad_assets.py --force   # regenerate all pads
 
 ```powershell
 conda activate MTX
-cd "D:\stuff\Adaptive Focus Music System"
+cd "D:\stuff\MTX\Adaptive Focus Music System"
 python -m adaptive_soundscape
 ```
 
@@ -234,7 +265,7 @@ Yes — you can ship the project **together with the Python environment** in a s
 **Build the zip** (on a Windows machine with Conda installed):
 
 ```powershell
-cd "D:\stuff\Adaptive Focus Music System"
+cd "D:\stuff\MTX\Adaptive Focus Music System"
 powershell -ExecutionPolicy Bypass -File scripts\build_demo_package.ps1
 ```
 
@@ -322,7 +353,7 @@ When using the Godot backend, set `backend: godot` and point `godot_executable` 
 
 ```yaml
   backend: godot
-  godot_executable: "D:/stuff/Adaptive Focus Music System/Godot_v4.6.3-stable_win64.exe"
+  godot_executable: "D:/stuff/MTX/Adaptive Focus Music System/Godot_v4.6.3-stable_win64.exe"
 ```
 
 Replace the path with the absolute path to your clone. Use forward slashes on Windows.

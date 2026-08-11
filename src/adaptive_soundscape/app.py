@@ -9,6 +9,8 @@ from PyQt6.QtCore import QTimer
 
 from adaptive_soundscape.activity.monitor import ActivityMonitor
 from adaptive_soundscape.audio.factory import create_audio_backend
+from adaptive_soundscape.audio.music_director import MusicDirector, config_from_settings
+from adaptive_soundscape.audio.music_manifest import MusicIntensity
 from adaptive_soundscape.cognitive.estimator import FocusEstimator
 from adaptive_soundscape.cognitive.signals import FocusSignals
 from adaptive_soundscape.context.classifier import resolve_context
@@ -38,6 +40,13 @@ from adaptive_soundscape.ui.main_window import MainWindow
 
 logger = logging.getLogger(__name__)
 
+_MUSIC_STATE_LABELS = {
+    MusicIntensity.CALM: "Calm",
+    MusicIntensity.FOCUS: "Focus",
+    MusicIntensity.DEEP_FOCUS: "Deep Focus",
+    MusicIntensity.RECOVERY: "Recovery",
+}
+
 
 class AdaptiveSoundscapeApp:
     """Coordinates monitoring, classification, estimation, audio, and UI."""
@@ -64,12 +73,18 @@ class AdaptiveSoundscapeApp:
         assets = resolve_assets_dir(self.settings)
         self._ensure_audio_assets(assets)
         self.audio = create_audio_backend(self.settings, assets)
+        self.director = MusicDirector(
+            assets_dir=assets,
+            backend=self.audio,
+            config=config_from_settings(self.settings.adaptive_music),
+        )
         self.window = MainWindow()
         self._manual_override = False
         self._current_context = WorkContext.UNKNOWN
         self._current_focus = FocusState.CALM_PRODUCTIVITY
         self._focus_score = 0.5
         self._audio_running = False
+        self._active_profile_id = "unknown"
 
         self.user_mappings = load_user_mappings()
         self.inferer = ContextInferer(self.user_mappings)
@@ -77,6 +92,11 @@ class AdaptiveSoundscapeApp:
         self._prompted_processes: set[str] = set()
         self._dismissed_processes: set[str] = set()
         self._last_process_key = ""
+
+        # Sync initial volume UI with config
+        vol = int(self.settings.adaptive_music.master_volume * 100)
+        self.window._volume_slider.setValue(vol)
+        self.director.set_volume(self.settings.adaptive_music.master_volume)
 
         interval = self.settings.app.poll_interval_ms
         self._timer = QTimer()
@@ -88,6 +108,8 @@ class AdaptiveSoundscapeApp:
         self.window._albums_btn.clicked.connect(self._open_album_manager)
         self.window._override_check.toggled.connect(self._on_override)
         self.window._sensitivity_spin.valueChanged.connect(self._on_sensitivity)
+        self.window._volume_slider.valueChanged.connect(self._on_volume)
+        self.window._mute_check.toggled.connect(self._on_mute)
         for chk in (self.window._title_check, self.window._process_check, self.window._log_check):
             chk.toggled.connect(self._on_privacy)
 
@@ -114,44 +136,59 @@ class AdaptiveSoundscapeApp:
     def stop(self) -> None:
         self._timer.stop()
         self.monitor.stop()
-        self.audio.stop()
+        self.director.shutdown()
         self._toast.hide()
 
     def _toggle_audio(self) -> None:
         if self._audio_running:
-            self.audio.stop()
+            self.director.pause()
             self._audio_running = False
             self.window._audio_btn.setText("Start Audio")
             self.window.set_status_message("")
-        else:
-            decision = self.transition.decide(
-                self._current_context, self._current_focus, self._focus_score
-            )
-            try:
-                self.audio.start(profile_id=decision.profile_id)
-            except Exception as exc:
-                logger.exception("Failed to start audio backend")
-                if self.settings.audio.fallback_to_placeholder:
-                    try:
-                        assets = resolve_assets_dir(self.settings)
-                        self.audio.stop()
-                        self.audio = create_audio_backend(
-                            self._placeholder_settings(), assets
-                        )
-                        self.audio.start(profile_id=decision.profile_id)
-                        self.window.set_status_message(
-                            "Using built-in audio mixer (Godot unavailable)."
-                        )
-                    except Exception as fallback_exc:
-                        logger.exception("Placeholder audio fallback failed")
-                        self.window.set_status_message(f"Audio error: {fallback_exc}")
-                        return
-                else:
-                    self.window.set_status_message(f"Audio error: {exc}")
+            self._refresh_ui()
+            return
+
+        decision = self.transition.decide(
+            self._current_context, self._current_focus, self._focus_score
+        )
+        try:
+            self._bind_director_backend(self.audio)
+            self.director.set_scenario(decision.profile_id, self._focus_score)
+            self.director.set_parameters(decision.parameters)
+            self.director.play()
+        except Exception as exc:
+            logger.exception("Failed to start audio backend")
+            if self.settings.audio.fallback_to_placeholder:
+                try:
+                    assets = resolve_assets_dir(self.settings)
+                    self.audio.stop()
+                    self.audio = create_audio_backend(
+                        self._placeholder_settings(), assets
+                    )
+                    self._bind_director_backend(self.audio)
+                    self.director.set_scenario(decision.profile_id, self._focus_score)
+                    self.director.set_parameters(decision.parameters)
+                    self.director.play()
+                    self.window.set_status_message(
+                        "Using built-in audio mixer (Godot unavailable)."
+                    )
+                except Exception as fallback_exc:
+                    logger.exception("Placeholder audio fallback failed")
+                    self.window.set_status_message(f"Audio error: {fallback_exc}")
                     return
-            self._audio_running = True
-            self.window._audio_btn.setText("Stop Audio")
-            self._apply_audio(decision)
+            else:
+                self.window.set_status_message(f"Audio error: {exc}")
+                return
+        self._audio_running = True
+        self._active_profile_id = decision.profile_id
+        self.window._audio_btn.setText("Stop Audio")
+        self._publish_audio_params(decision)
+        self._refresh_ui(decision.display_name)
+
+    def _bind_director_backend(self, backend) -> None:
+        self.director.backend = backend
+        self.director.set_volume(self.window._volume_slider.value() / 100.0)
+        self.director.set_muted(self.window._mute_check.isChecked())
 
     def _placeholder_settings(self) -> Settings:
         """Return settings forced to the placeholder mixer backend."""
@@ -180,8 +217,10 @@ class AdaptiveSoundscapeApp:
         invalidate = getattr(self.audio, "invalidate_caches", None)
         if callable(invalidate):
             invalidate()
+        if self._audio_running:
+            self.director.set_scenario(self._active_profile_id, self._focus_score)
         self.window.set_status_message(
-            "Album updated. New tracks apply on the next scenario transition."
+            "Album updated. Intensity loops apply on the next music transition."
         )
 
     def _on_override(self, enabled: bool) -> None:
@@ -197,6 +236,12 @@ class AdaptiveSoundscapeApp:
 
     def _on_sensitivity(self, value: float) -> None:
         self.estimator.sensitivity = value
+
+    def _on_volume(self, value: int) -> None:
+        self.director.set_volume(value / 100.0)
+
+    def _on_mute(self, muted: bool) -> None:
+        self.director.set_muted(muted)
 
     def _on_privacy(self, _checked: bool) -> None:
         titles, processes, log_activity = self.window.privacy_settings()
@@ -251,16 +296,21 @@ class AdaptiveSoundscapeApp:
         decision = self.transition.decide(ctx, estimate.state, estimate.focus_score)
         if decision.should_transition and self._audio_running:
             self._apply_audio(decision)
+        elif self._audio_running:
+            # Intensity adapts continuously inside the active song.
+            self.director.update_intensity(estimate.focus_score)
+            self.director.set_parameters(decision.parameters)
 
         self._refresh_ui(decision.display_name)
         self.monitor.reset_window_switches()
 
         if self.settings.privacy.log_activity and self.settings.app.logging_enabled:
             logger.info(
-                "activity context=%s focus=%.2f state=%s source=%s",
+                "activity context=%s focus=%.2f state=%s music=%s source=%s",
                 ctx.value,
                 estimate.focus_score,
                 estimate.state.value,
+                self.director.active_state.value,
                 resolved.source,
             )
 
@@ -268,13 +318,9 @@ class AdaptiveSoundscapeApp:
         process_key = _process_key(resolved.process_name)
         if process_key != self._last_process_key:
             self._last_process_key = process_key
-            # Allow a new prompt when the foreground app changes.
-            if process_key in self._prompted_processes and process_key not in self._dismissed_processes:
-                pass
 
         if not resolved.needs_confirm or not resolved.is_misc:
             if self._toast.is_showing_for(resolved.process_name):
-                # Window became known (e.g. user mapping applied elsewhere).
                 self._toast.hide()
             return
 
@@ -285,7 +331,6 @@ class AdaptiveSoundscapeApp:
         if process_key in self._prompted_processes and self._toast.isVisible():
             return
         if process_key in self._prompted_processes and not self._toast.isVisible():
-            # Already handled this process this session.
             return
 
         suggested = resolved.context
@@ -311,7 +356,6 @@ class AdaptiveSoundscapeApp:
         if not isinstance(context, WorkContext) or context == WorkContext.UNKNOWN:
             return
         self.user_mappings.add_process(context, process_name)
-        # Optional distinctive title token helps browsers / multi-purpose apps.
         token = _distinctive_title_token(window_title)
         if token:
             self.user_mappings.add_title_keyword(context, token)
@@ -337,11 +381,14 @@ class AdaptiveSoundscapeApp:
             self._dismissed_processes.add(process_key)
 
     def _apply_audio(self, decision) -> None:
-        self.audio.crossfade_to(
-            decision.profile_id,
-            decision.crossfade_seconds,
-            decision.parameters,
-        )
+        self._active_profile_id = decision.profile_id
+        if self._audio_running:
+            self.director.set_scenario(decision.profile_id, self._focus_score)
+            self.director.set_parameters(decision.parameters)
+            self.director.update_intensity(self._focus_score)
+        self._publish_audio_params(decision)
+
+    def _publish_audio_params(self, decision) -> None:
         self.bus.publish(
             AudioParametersUpdated(
                 profile_id=decision.profile_id,
@@ -362,11 +409,26 @@ class AdaptiveSoundscapeApp:
         del event
 
     def _refresh_ui(self, profile_name: str = "Neutral") -> None:
+        state = self.director.active_state
+        detail_parts = [f"Mode: {self.director.playback_mode}"]
+        if self.director.active_song_id:
+            detail_parts.append(f"Song: {self.director.active_song_id}")
+        if self.director.playback_mode == "layered" and self.director.layer_gains:
+            top = sorted(
+                self.director.layer_gains.items(), key=lambda kv: kv[1], reverse=True
+            )[:3]
+            detail_parts.append(
+                "Gains: " + ", ".join(f"{k}={v:.2f}" for k, v in top)
+            )
+        elif self.director.active_track_id:
+            detail_parts.append(f"Loop: {self.director.active_track_id}")
         self.window.update_status(
             context=self._current_context,
             focus_state=self._current_focus,
             focus_score=self._focus_score,
             profile_name=profile_name,
+            music_state=_MUSIC_STATE_LABELS.get(state, state.value),
+            music_detail=" · ".join(detail_parts),
         )
 
 

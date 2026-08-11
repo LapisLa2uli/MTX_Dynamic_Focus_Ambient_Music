@@ -1,0 +1,14 @@
+# Isolated env — do NOT install into the MTX/PyQt conda env.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+numpy>=1.24
+soundfile>=0.12
+torch>=2.1
+transformers==4.46.3
+tokenizers==0.20.3
+huggingface_hub>=0.25,<1.0
+scipy>=1.10
+regex
+sentencepiece
+protobuf>=3.20,<5
+typer

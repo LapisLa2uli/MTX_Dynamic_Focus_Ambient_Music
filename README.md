@@ -27,7 +27,7 @@ Download and install [Miniconda](https://docs.conda.io/en/latest/miniconda.html)
 ### 2. Clone or open this project
 
 ```powershell
-cd "D:\stuff\Adaptive Focus Music System"
+cd "D:\stuff\MTX\Adaptive Focus Music System"
 ```
 
 ### 3. Create the Python environment
@@ -72,7 +72,9 @@ conda activate MTX
 python scripts/verify_imports.py
 ```
 
-You should see `OK` for every module and exit code `0`. If any package shows `LEAK`, it was loaded from user site-packages—reinstall with `pip install --no-user`.
+You should see `OK` for every module and exit code `0`. If any package shows `LEAK`, it was loaded from user site-packages—reinstall with `pip install --no-user`, or temporarily set `$env:PYTHONNOUSERSITE = "1"`.
+
+**PyQt6 note:** This project pins `PyQt6==6.8.1` (see `requirements.txt`). `PyQt6` 6.11.x can fail on some Windows/conda setups with `DLL load failed … 找不到指定的程序` when importing `QtCore`/`QtWidgets`. If that happens, reinstall from `requirements.txt`. Do **not** install conda `qt6-main` / `matplotlib` into the `MTX` env alongside pip PyQt6—they conflict on DLL search paths.
 
 ### 6. (Optional) Install Godot 4 for the Godot audio backend
 
@@ -109,13 +111,13 @@ Edit [`config/default.yaml`](config/default.yaml):
 ```yaml
 audio:
   backend: godot                    # switch from placeholder to godot
-  godot_executable: "D:/stuff/Adaptive Focus Music System/Godot_v4.6.3-stable_win64.exe"
+  godot_executable: "D:/stuff/MTX/Adaptive Focus Music System/Godot_v4.6.3-stable_win64.exe"
   godot_project: godot
   godot_port: 8765
   fallback_to_placeholder: true     # use built-in mixer if Godot fails
 ```
 
-Use **forward slashes** in the path (works on Windows). Replace `D:/stuff/Adaptive Focus Music System` with the absolute path to **your** clone of this repo.
+Use **forward slashes** in the path (works on Windows). Replace `D:/stuff/MTX/Adaptive Focus Music System` with the absolute path to **your** clone of this repo.
 
 Example if your project lives at `C:\Users\You\Projects\Adaptive Focus Music System`:
 
@@ -129,7 +131,7 @@ Leave `backend: placeholder` if you do not install Godot — the app works witho
 
 - Environment variable (PowerShell, current session):
   ```powershell
-  $env:GODOT4 = "D:\stuff\Adaptive Focus Music System\Godot_v4.6.3-stable_win64.exe"
+  $env:GODOT4 = "D:\stuff\MTX\Adaptive Focus Music System\Godot_v4.6.3-stable_win64.exe"
   ```
 - Add Godot’s folder to your system `PATH` (then `godot_executable` can stay empty if `godot` is found automatically)
 
@@ -137,46 +139,113 @@ If Godot fails to start, leave `fallback_to_placeholder: true` and the app will 
 
 ---
 
-## Audio assets
+## Adaptive music (layered stems + discrete fallback)
 
-Each work scenario has a **song album**. When that scenario is active, the app picks a track from the album **at random**. Supported formats: **`.mp3`**, **`.wav`** (and `.ogg` in Godot only).
+Music adapts in two nested levels:
 
-Use **Manage Albums** in the app to upload or delete songs, or place files manually:
+1. **Work scenario** selects a scenario **album**, then a random **song family**.
+2. **Default (layered):** compatible stem loops (`pad`, `harmony`, `melody_a`, `rhythm`, optional `melody_b` / `texture` / `recovery`) play together. `MusicDirector` maps `focus_score` → **per-layer volumes** (with slew + energy limiting).
+3. **Fallback (discrete):** if a song has fewer than two base layers, the older calm / focus / deep_focus **file switching** path is used.
 
-| Context | Album folder |
-|---------|----------------|
-| Programming | `assets/audio/programming/` |
-| Team / workflow | `assets/audio/team_workflow/` |
-| Reading / writing | `assets/audio/reading_writing/` |
-| Scientific | `assets/audio/scientific/` |
-| Creative / design | `assets/audio/creative_design/` |
-| Distraction recovery | `assets/audio/distraction/` |
-| Unknown / neutral | `assets/audio/unknown/` |
+The authoritative concentration signal is `FocusEstimator.focus_score` ∈ `[0, 1]`. UI Music State labels still use hysteresis bands; in layered mode those labels do not swap whole files.
 
-**Album layout (default)**
+### Thresholds & mix (`config/default.yaml` → `adaptive_music`)
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `enter_focus` / `leave_focus` | 0.40 / 0.30 | UI / discrete Focus band |
+| `enter_deep_focus` / `leave_deep_focus` | 0.70 / 0.60 | UI / discrete Deep Focus band |
+| `min_state_seconds` | 3.0 | Debounce for discrete swaps / label |
+| `gain_slew_seconds` | 1.25 | Layer gain ramp time |
+| `energy_limit` | 1.35 | Soft cap on summed layer gains |
+| `intensity_smoothing` | 0.70 | Extra EMA for music decisions only |
+
+### Asset layout + manifest
 
 ```
 assets/audio/
   programming/
-    programming_01.mp3
-    deep_focus_alt.wav
-  reading_writing/
-    quiet_study_01.mp3
-  ...
+    programming_01/
+      manifest.json
+      pad/pad_01.wav
+      harmony/harmony_01.wav
+      melody_a/melody_a_01.wav
+      rhythm/rhythm_01.wav
+      melody_b/                 # optional MusicGen
+      texture/                 # optional MusicGen
+      calm/ focus/ deep_focus/ # discrete fallback
 ```
 
-On first run, any legacy flat files (`programming.mp3`, etc.) are copied into the matching album as a single starter track. You can also run:
+Set `"playbackMode": "layered"` (default when ≥2 base layers exist) or `"discrete"`.
+
+Migrate / refresh layered stubs (identical full-mix copies — not real stems):
 
 ```powershell
 conda activate MTX
+cd "D:\stuff\MTX\Adaptive Focus Music System"
 python scripts/migrate_albums.py
 ```
 
-**Legacy layered layout (Godot, optional)** — only if a folder has no album songs and uses stem names `ambient` / `rhythm` / `harmonic` / `accent`. See [`godot/README.md`](godot/README.md).
+### Self-hosted Demucs (stem separation)
+
+Base layers (`pad` / `harmony` / `melody_a` / `rhythm`) are produced by a **separate FastAPI Demucs sidecar** (not the MTX env). Startup never runs Demucs; it only installs cheap stub copies until you separate.
+
+```powershell
+conda create -n demucs python=3.10 -y
+conda activate demucs
+cd "D:\stuff\MTX\Adaptive Focus Music System\services\demucs_api"
+pip install -r requirements.txt
+.\run.ps1
+```
+
+Stub mode (no model download): `$env:DEMUCS_STUB = "1"; .\run.ps1`
+
+Then from MTX, separate existing album songs:
+
+```powershell
+conda activate MTX
+python scripts/separate_album_stems.py
+python scripts/separate_album_stems.py --scenario programming --song programming_01
+python scripts/separate_album_stems.py --force
+```
+
+**Manage Albums → Upload as New Song** also auto-separates when `stem_separation.auto_on_upload` is true and the sidecar is online. Uploading into a single existing stem layer does not re-run Demucs.
+
+Stem map: `drums→rhythm`, `bass→pad`, `other→harmony`, `vocals→melody_a` (high-passed `other` if vocals are near-silent). Config: `stem_separation` in `config/default.yaml` (`api_base_url: http://127.0.0.1:7863`).
+
+### Self-hosted MusicGen (offline layer generation)
+
+Intensity layers are generated by a **separate FastAPI sidecar** (not the MTX env):
+
+```powershell
+conda create -n musicgen python=3.10 -y
+conda activate musicgen
+cd "D:\stuff\MTX\Adaptive Focus Music System\services\musicgen_api"
+pip install -r requirements.txt
+.\run.ps1
+```
+
+Stub mode (no GPU / no model download): `$env:MUSICGEN_STUB = "1"; .\run.ps1`
+
+Then from MTX:
+
+```powershell
+conda activate MTX
+python scripts/generate_intensity_layers.py --scenario programming --song programming_01
+```
+
+Or use **Manage Albums → Generate AI Layers**. Config: `generative_layers` in `config/default.yaml` (`api_base_url: http://127.0.0.1:7862`). Generation never runs on the 1 Hz tick.
+
+### UI controls
+
+- **Start Audio** — enables adaptive playback.
+- **Music State** — Calm / Focus / Deep Focus (+ mode, song, top layer gains).
+- **Music volume** / **Mute**.
+- **Manage Albums** — stem layer or discrete intensity upload; auto Demucs on new full-mix songs; Generate AI layers.
 
 ### Generate placeholder tones (optional)
 
-If an album is empty, the app can synthesize a simple loop into that folder on startup.
+If an album is empty, the app synthesizes a simple loop and migrates it into a song family with layered stubs on startup.
 
 ---
 
@@ -184,7 +253,7 @@ If an album is empty, the app can synthesize a simple loop into that folder on s
 
 ```powershell
 conda activate MTX
-cd "D:\stuff\Adaptive Focus Music System"
+cd "D:\stuff\MTX\Adaptive Focus Music System"
 python -m adaptive_soundscape
 ```
 
@@ -201,7 +270,7 @@ Yes — you can ship the project **together with the Python environment** in a s
 **Build the zip** (on a Windows machine with Conda installed):
 
 ```powershell
-cd "D:\stuff\Adaptive Focus Music System"
+cd "D:\stuff\MTX\Adaptive Focus Music System"
 powershell -ExecutionPolicy Bypass -File scripts\build_demo_package.ps1
 ```
 
@@ -289,7 +358,7 @@ When using the Godot backend, set `backend: godot` and point `godot_executable` 
 
 ```yaml
   backend: godot
-  godot_executable: "D:/stuff/Adaptive Focus Music System/Godot_v4.6.3-stable_win64.exe"
+  godot_executable: "D:/stuff/MTX/Adaptive Focus Music System/Godot_v4.6.3-stable_win64.exe"
 ```
 
 Replace the path with the absolute path to your clone. Use forward slashes on Windows.

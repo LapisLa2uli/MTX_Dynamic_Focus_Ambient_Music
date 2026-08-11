@@ -50,6 +50,18 @@ class PlaceholderMixer:
         self._lock = threading.Lock()
         self._playing = False
         self._preload_thread: threading.Thread | None = None
+        # Layered stem pack state (additive mix).
+        self._stem_mode = False
+        self._stem_buffers: dict[str, np.ndarray] = {}
+        self._stem_positions: dict[str, int] = {}
+        self._stem_gains: dict[str, float] = {}
+        self._stem_gain_targets: dict[str, float] = {}
+        self._stem_slew_remaining = 0
+        self._stem_slew_total = 1
+        self._stem_target_buffers: dict[str, np.ndarray] = {}
+        self._stem_target_positions: dict[str, int] = {}
+        self._stem_pack_fade_remaining = 0
+        self._stem_pack_fade_total = 1
 
     @property
     def is_playing(self) -> bool:
@@ -62,6 +74,10 @@ class PlaceholderMixer:
             self._positions.clear()
             self._profile_track.clear()
             self._track_cache.clear()
+            self._stem_buffers.clear()
+            self._stem_positions.clear()
+            self._stem_target_buffers.clear()
+            self._stem_target_positions.clear()
 
     def _edge_guard(self, length: int) -> int:
         """Skip baked loop-edge fades so incoming stems are not silent."""
@@ -204,6 +220,121 @@ class PlaceholderMixer:
             if self._crossfade_remaining <= 0:
                 self._target_params = params
 
+    def set_master_volume(self, volume: float) -> None:
+        self.master_volume = max(0.0, min(1.0, float(volume)))
+
+    def load_stem_pack(
+        self,
+        layers: dict[str, Path],
+        crossfade_seconds: float = 0.0,
+    ) -> None:
+        """Load a multi-layer stem pack and mix additively."""
+        loaded: dict[str, np.ndarray] = {}
+        for layer_id, path in layers.items():
+            if not path.is_file():
+                logger.warning("load_stem_pack: missing %s → %s", layer_id, path)
+                continue
+            data = self._load_track(path)
+            if data is None:
+                logger.warning("load_stem_pack: decode failed %s", path)
+                continue
+            loaded[layer_id] = data
+        if not loaded:
+            logger.warning("load_stem_pack: no layers loaded")
+            return
+        with self._lock:
+            if not self._stem_mode or not self._stem_buffers or crossfade_seconds <= 0:
+                self._stem_mode = True
+                self._stem_buffers = loaded
+                self._stem_positions = {
+                    lid: self._edge_guard(len(buf)) for lid, buf in loaded.items()
+                }
+                self._stem_target_buffers = {}
+                self._stem_target_positions = {}
+                self._stem_pack_fade_remaining = 0
+                for lid in loaded:
+                    self._stem_gains.setdefault(lid, 0.5)
+                    self._stem_gain_targets.setdefault(lid, self._stem_gains[lid])
+                # Use a synthetic profile key so discrete path does not fight stems.
+                self._profile_id = "__stem__"
+                self._target_profile_id = "__stem__"
+                return
+            self._stem_target_buffers = loaded
+            self._stem_target_positions = {
+                lid: self._edge_guard(len(buf)) for lid, buf in loaded.items()
+            }
+            self._stem_pack_fade_total = max(int(crossfade_seconds * self.sample_rate), 1)
+            self._stem_pack_fade_remaining = self._stem_pack_fade_total
+            for lid in loaded:
+                self._stem_gains.setdefault(lid, 0.0)
+                self._stem_gain_targets.setdefault(lid, 0.5)
+
+    def set_layer_gains(
+        self,
+        gains: dict[str, float],
+        slew_seconds: float = 1.0,
+    ) -> None:
+        with self._lock:
+            if not self._stem_mode:
+                return
+            targets = {k: max(0.0, min(1.0, float(v))) for k, v in gains.items()}
+            # Zero gains for layers no longer listed.
+            for lid in list(self._stem_gains.keys()):
+                if lid not in targets:
+                    targets[lid] = 0.0
+            self._stem_gain_targets = targets
+            for lid in targets:
+                self._stem_gains.setdefault(lid, 0.0)
+            if slew_seconds <= 0:
+                self._stem_gains = dict(targets)
+                self._stem_slew_remaining = 0
+            else:
+                self._stem_slew_total = max(int(slew_seconds * self.sample_rate), 1)
+                self._stem_slew_remaining = self._stem_slew_total
+
+    def crossfade_to_track(
+        self,
+        path: Path,
+        duration_seconds: float,
+        params: AudioParameters | None = None,
+    ) -> None:
+        """Crossfade to a concrete audio file (intensity loop / song variant)."""
+        if not path.is_file():
+            logger.warning("crossfade_to_track: missing file %s", path)
+            return
+        data = self._load_track(path)
+        if data is None:
+            logger.warning("crossfade_to_track: failed to decode %s", path)
+            return
+        key = str(path.resolve())
+        with self._lock:
+            # Discrete intensity path takes over from stem mixing.
+            self._stem_mode = False
+            self._stem_pack_fade_remaining = 0
+            self._buffers[key] = data
+            if key not in self._positions:
+                self._positions[key] = self._edge_guard(len(data))
+            self._profile_track[key] = path
+            current = self._profile_id
+            if current not in self._buffers or not self._playing or current == "__stem__":
+                self._profile_id = key
+                self._target_profile_id = key
+                self._crossfade_remaining = 0
+                if params is not None:
+                    self._params = params
+                    self._target_params = params
+                return
+            if key == current:
+                if params is not None:
+                    self._params = params
+                    self._target_params = params
+                return
+            self._target_profile_id = key
+            self._crossfade_total = max(int(duration_seconds * self.sample_rate), 1)
+            self._crossfade_remaining = self._crossfade_total
+            if params is not None:
+                self._target_params = params
+
     def crossfade_to(
         self,
         profile_id: str,
@@ -256,14 +387,107 @@ class PlaceholderMixer:
         t = max(0.0, min(1.0, t))
         return math.cos(t * math.pi * 0.5), math.sin(t * math.pi * 0.5)
 
+    def _read_stem_mix(
+        self,
+        buffers: dict[str, np.ndarray],
+        positions: dict[str, int],
+        gains: dict[str, float],
+        frames: int,
+    ) -> tuple[np.ndarray, dict[str, int]]:
+        out = np.zeros(frames, dtype=np.float32)
+        new_pos = dict(positions)
+        for layer_id, buf in buffers.items():
+            if buf is None or len(buf) == 0:
+                continue
+            g = float(gains.get(layer_id, 0.0))
+            if g <= 1e-6:
+                continue
+            pos = new_pos.get(layer_id, 0)
+            length = len(buf)
+            layer = np.zeros(frames, dtype=np.float32)
+            for i in range(frames):
+                layer[i] = buf[pos]
+                pos = (pos + 1) % length
+            new_pos[layer_id] = pos
+            out += layer * g
+        return np.clip(out, -1.0, 1.0), new_pos
+
+    def _advance_stem_gains(self, frames: int) -> dict[str, float]:
+        with self._lock:
+            gains = dict(self._stem_gains)
+            targets = dict(self._stem_gain_targets)
+            rem = self._stem_slew_remaining
+            total = self._stem_slew_total
+        if rem <= 0:
+            with self._lock:
+                self._stem_gains = dict(targets)
+            return targets
+        t = 1.0 - (rem / max(total, 1))
+        blended = {}
+        for lid in set(gains) | set(targets):
+            a = gains.get(lid, 0.0)
+            b = targets.get(lid, 0.0)
+            blended[lid] = a + (b - a) * t
+        rem -= frames
+        with self._lock:
+            self._stem_gains = blended
+            if rem <= 0:
+                self._stem_gains = dict(targets)
+                self._stem_slew_remaining = 0
+                return targets
+            self._stem_slew_remaining = rem
+        return blended
+
     def _render(self, frames: int) -> np.ndarray:
         with self._lock:
-            profile = self._profile_id
-            target = self._target_profile_id
+            stem_mode = self._stem_mode
             params = self._params
             target_params = self._target_params
+            pack_fade_rem = self._stem_pack_fade_remaining
+            pack_fade_total = self._stem_pack_fade_total
+            stem_buffers = dict(self._stem_buffers)
+            stem_positions = dict(self._stem_positions)
+            stem_target_buffers = dict(self._stem_target_buffers)
+            stem_target_positions = dict(self._stem_target_positions)
+            profile = self._profile_id
+            target = self._target_profile_id
             fade_rem = self._crossfade_remaining
             fade_total = self._crossfade_total
+
+        if stem_mode and stem_buffers:
+            gains = self._advance_stem_gains(frames)
+            current, new_pos = self._read_stem_mix(
+                stem_buffers, stem_positions, gains, frames
+            )
+            with self._lock:
+                if self._stem_buffers is not None:
+                    self._stem_positions = new_pos
+            current = self._apply_params(current, params)
+
+            if pack_fade_rem > 0 and stem_target_buffers:
+                t = 1.0 - (pack_fade_rem / max(pack_fade_total, 1))
+                gain_a, gain_b = self._equal_power_weights(t)
+                target_block, t_pos = self._read_stem_mix(
+                    stem_target_buffers, stem_target_positions, gains, frames
+                )
+                target_block = self._apply_params(target_block, target_params)
+                mixed = current * gain_a + target_block * gain_b
+                pack_fade_rem -= frames
+                with self._lock:
+                    self._stem_target_positions = t_pos
+                    if pack_fade_rem <= 0:
+                        self._stem_buffers = self._stem_target_buffers
+                        self._stem_positions = t_pos
+                        self._stem_target_buffers = {}
+                        self._stem_target_positions = {}
+                        self._stem_pack_fade_remaining = 0
+                        self._params = target_params
+                    else:
+                        self._stem_pack_fade_remaining = pack_fade_rem
+                out = mixed
+            else:
+                out = current
+            return (out * self.master_volume).astype(np.float32)
 
         current = self._read_loop(profile, frames)
         current = self._apply_params(current, params)

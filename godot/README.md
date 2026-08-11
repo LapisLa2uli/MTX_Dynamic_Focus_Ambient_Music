@@ -62,7 +62,7 @@ Supported formats: `.mp3`, `.wav`, `.ogg` (Godot). MP3 in the Python placeholder
 ## Run manually
 
 ```powershell
-godot --audio-driver WASAPI --path godot -- --port 8765 --assets "D:/stuff/Adaptive Focus Music System/assets/audio"
+godot --audio-driver WASAPI --path godot -- --port 8765 --assets "D:/stuff/MTX/Adaptive Focus Music System/assets/audio"
 ```
 
 Arguments after `--` are read via `OS.get_cmdline_user_args()`.

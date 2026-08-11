@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -11,9 +10,11 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
+from PyQt6.QtCore import Qt
 
 from adaptive_soundscape.core.events import FocusState, WorkContext
 from adaptive_soundscape.ui.widgets import FocusMeter, StatusCard
@@ -40,6 +41,10 @@ QLabel#cardValue {
     font-size: 15px;
     font-weight: 600;
 }
+QLabel#cardSub {
+    color: #888894;
+    font-size: 11px;
+}
 QProgressBar {
     background-color: #2e2e36;
     border: none;
@@ -63,6 +68,17 @@ QComboBox, QDoubleSpinBox {
     border-radius: 4px;
     padding: 4px 8px;
 }
+QSlider::groove:horizontal {
+    height: 6px;
+    background: #2e2e36;
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #5b8def;
+    width: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
+}
 QCheckBox { spacing: 8px; }
 """
 
@@ -73,7 +89,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Adaptive Cognitive Soundscape")
-        self.setMinimumSize(480, 420)
+        self.setMinimumSize(520, 520)
         self.setStyleSheet(DARK_STYLE)
 
         central = QWidget()
@@ -90,10 +106,17 @@ class MainWindow(QMainWindow):
         self._context_card = StatusCard("Context")
         self._focus_state_card = StatusCard("Focus State")
         self._profile_card = StatusCard("Active Profile")
+        self._music_card = StatusCard("Music State")
         cards.addWidget(self._context_card)
         cards.addWidget(self._focus_state_card)
         cards.addWidget(self._profile_card)
+        cards.addWidget(self._music_card)
         root.addLayout(cards)
+
+        self._music_sub = QLabel("")
+        self._music_sub.setObjectName("cardSub")
+        self._music_sub.setWordWrap(True)
+        root.addWidget(self._music_sub)
 
         self._focus_meter = FocusMeter()
         root.addWidget(self._focus_meter)
@@ -116,6 +139,16 @@ class MainWindow(QMainWindow):
         self._sensitivity_spin.setValue(1.0)
         sens_row.addWidget(self._sensitivity_spin)
         root.addLayout(sens_row)
+
+        vol_row = QHBoxLayout()
+        vol_row.addWidget(QLabel("Music volume"))
+        self._volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self._volume_slider.setRange(0, 100)
+        self._volume_slider.setValue(75)
+        self._mute_check = QCheckBox("Mute")
+        vol_row.addWidget(self._volume_slider, stretch=1)
+        vol_row.addWidget(self._mute_check)
+        root.addLayout(vol_row)
 
         privacy_label = QLabel("Privacy")
         privacy_label.setStyleSheet("font-weight: 600; margin-top: 8px;")
@@ -157,10 +190,14 @@ class MainWindow(QMainWindow):
         focus_state: FocusState,
         focus_score: float,
         profile_name: str,
+        music_state: str = "—",
+        music_detail: str = "",
     ) -> None:
         self._context_card.set_value(context.value.replace("_", " ").title())
         self._focus_state_card.set_value(focus_state.value.replace("_", " ").title())
         self._profile_card.set_value(profile_name)
+        self._music_card.set_value(music_state)
+        self._music_sub.setText(music_detail)
         self._focus_meter.set_score(focus_score)
 
     @property

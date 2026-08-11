@@ -25,6 +25,7 @@ var _target_params := {"brightness": 0.5, "energy": 0.4, "warmth": 0.55}
 
 var _current_layers: Array[AudioStreamPlayer] = []
 var _target_layers: Array[AudioStreamPlayer] = []
+var _layer_gains: Dictionary = {}  # layer_name -> linear gain 0..1
 var _layer_root: Node
 var _stream_cache: Dictionary = {}  # path -> AudioStream
 
@@ -159,6 +160,18 @@ func _handle_command(line: String) -> void:
 			_target_params = _parse_params(data)
 			_begin_crossfade(profile_id, duration, track_path)
 			_send_json({"ok": true, "profile_id": profile_id, "duration": duration})
+		"load_stem_pack":
+			_load_stem_pack(data)
+			var pack_payload := _status_payload()
+			pack_payload["event"] = "stem_pack_loaded"
+			_send_json(pack_payload)
+		"set_layer_gains":
+			var gains: Variant = data.get("gains", {})
+			if typeof(gains) == TYPE_DICTIONARY:
+				for key in gains.keys():
+					_layer_gains[str(key)] = clampf(float(gains[key]), 0.0, 1.0)
+			_apply_layer_params(_current_layers, _params)
+			_send_json({"ok": true, "gains": _layer_gains})
 		"quit":
 			_send_json({"ok": true})
 			get_tree().quit()
@@ -452,6 +465,67 @@ func _configure_player_loop(player: AudioStreamPlayer, stream: AudioStream) -> v
 		)
 
 
+func _load_stem_pack(data: Dictionary) -> void:
+	## Host sends layers as {layer_id: absolute_path}.
+	_promote_loud_crossfade_side()
+	var layers: Variant = data.get("layers", {})
+	if typeof(layers) != TYPE_DICTIONARY or layers.is_empty():
+		push_warning("load_stem_pack: empty layers")
+		return
+	var duration := float(data.get("duration", 0.0))
+	var players := _build_stem_pack_players(layers)
+	if players.is_empty():
+		push_warning("load_stem_pack: no playable layers")
+		return
+	if duration <= 0.01 or _current_layers.is_empty():
+		_clear_layers(_current_layers)
+		_clear_layers(_target_layers)
+		_current_layers = players
+		_current_profile = str(data.get("profile_id", _current_profile))
+		_crossfade_active = false
+		for player in _current_layers:
+			if _playing and not player.playing:
+				player.play()
+		_apply_layer_params(_current_layers, _params)
+		return
+	_clear_layers(_target_layers)
+	_target_layers = players
+	_target_profile = str(data.get("profile_id", _current_profile))
+	_crossfade_duration = max(duration, 0.01)
+	_crossfade_elapsed = 0.0
+	_crossfade_active = true
+	for player in _target_layers:
+		player.volume_db = -80.0
+		if _playing and not player.playing:
+			player.play()
+
+
+func _build_stem_pack_players(layers: Dictionary) -> Array[AudioStreamPlayer]:
+	var players: Array[AudioStreamPlayer] = []
+	for layer_name in layers.keys():
+		var path := str(layers[layer_name]).replace("\\", "/")
+		if path == "" or not FileAccess.file_exists(path):
+			continue
+		var stream := _load_audio(path)
+		if stream == null:
+			continue
+		var player := AudioStreamPlayer.new()
+		player.name = "stem_%s" % str(layer_name)
+		player.stream = stream
+		player.set_meta("base_gain", 1.0)
+		player.set_meta("layer_name", str(layer_name))
+		player.set_meta("source_path", path)
+		if not _layer_gains.has(str(layer_name)):
+			_layer_gains[str(layer_name)] = 0.5
+		player.volume_db = linear_to_db(0.0001)
+		player.autoplay = false
+		player.bus = "Master"
+		_configure_player_loop(player, stream)
+		_layer_root.add_child(player)
+		players.append(player)
+	return players
+
+
 func _apply_layer_params(players: Array[AudioStreamPlayer], params: Dictionary, mix: float = 1.0) -> void:
 	var brightness: float = params.get("brightness", 0.5)
 	var energy: float = params.get("energy", 0.4)
@@ -464,7 +538,12 @@ func _apply_layer_params(players: Array[AudioStreamPlayer], params: Dictionary, 
 		var base_gain := 1.0
 		if player.has_meta("base_gain"):
 			base_gain = float(player.get_meta("base_gain"))
-		var gain := max(base_gain * shape * _master_volume * mix, 0.001)
+		var layer_gain := 1.0
+		if player.has_meta("layer_name"):
+			var lname := str(player.get_meta("layer_name"))
+			if _layer_gains.has(lname):
+				layer_gain = clampf(float(_layer_gains[lname]), 0.0, 1.0)
+		var gain := max(base_gain * layer_gain * shape * _master_volume * mix, 0.0001)
 		player.volume_db = linear_to_db(gain)
 
 

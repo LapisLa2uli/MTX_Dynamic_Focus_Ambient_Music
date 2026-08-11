@@ -54,6 +54,39 @@ class AudioConfig(BaseModel):
     fallback_to_placeholder: bool = True
 
 
+class AdaptiveMusicConfigModel(BaseModel):
+    enabled: bool = True
+    intensity_smoothing: float = 0.70
+    enter_focus: float = 0.40
+    enter_deep_focus: float = 0.70
+    leave_deep_focus: float = 0.60
+    leave_focus: float = 0.30
+    min_state_seconds: float = 3.0
+    recovery_seconds: float = 10.0
+    default_crossfade_ms: int = 1500
+    master_volume: float = 0.75
+    gain_slew_seconds: float = 1.25
+    energy_limit: float = 1.35
+    recovery_peak: float = 0.55
+    layer_mix: dict[str, list[list[float]]] = Field(default_factory=dict)
+
+
+class GenerativeLayersConfig(BaseModel):
+    enabled: bool = True
+    api_base_url: str = "http://127.0.0.1:7862"
+    model_size: str = "small"
+    timeout_seconds: float = 180.0
+    output_layers: list[str] = Field(default_factory=lambda: ["texture", "melody_b"])
+
+
+class StemSeparationConfig(BaseModel):
+    enabled: bool = True
+    api_base_url: str = "http://127.0.0.1:7863"
+    model: str = "htdemucs"
+    timeout_seconds: float = 600.0
+    auto_on_upload: bool = True
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ACS_", extra="ignore")
 
@@ -63,6 +96,15 @@ class Settings(BaseSettings):
     transition: TransitionConfig = Field(default_factory=TransitionConfig)
     cognitive: CognitiveConfig = Field(default_factory=CognitiveConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
+    adaptive_music: AdaptiveMusicConfigModel = Field(
+        default_factory=AdaptiveMusicConfigModel
+    )
+    generative_layers: GenerativeLayersConfig = Field(
+        default_factory=GenerativeLayersConfig
+    )
+    stem_separation: StemSeparationConfig = Field(
+        default_factory=StemSeparationConfig
+    )
 
 
 def _project_root() -> Path:

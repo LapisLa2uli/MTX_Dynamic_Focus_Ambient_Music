@@ -142,6 +142,84 @@ class GodotAudioBackend:
                 )
             self._send(payload)
 
+    def crossfade_to_track(
+        self,
+        path: Path,
+        duration_seconds: float,
+        params: AudioParameters | None = None,
+    ) -> None:
+        if self._socket is None:
+            return
+        if not path.is_file():
+            logger.warning("Godot crossfade_to_track: missing %s", path)
+            return
+        payload: dict = {
+            "op": "crossfade",
+            "profile_id": self._profile_id,
+            "duration": duration_seconds,
+            "track_path": str(path.resolve()).replace("\\", "/"),
+        }
+        if params is not None:
+            payload.update(
+                {
+                    "brightness": params.brightness,
+                    "energy": params.energy,
+                    "warmth": params.warmth,
+                }
+            )
+        self._send(payload)
+
+    def set_master_volume(self, volume: float) -> None:
+        self.master_volume = max(0.0, min(1.0, float(volume)))
+        if self._socket is not None:
+            try:
+                self._send(
+                    {
+                        "op": "configure",
+                        "assets_path": str(self.assets_dir.resolve()).replace("\\", "/"),
+                        "master_volume": self.master_volume,
+                    }
+                )
+            except OSError:
+                pass
+
+    def load_stem_pack(
+        self,
+        layers: dict[str, Path],
+        crossfade_seconds: float = 0.0,
+    ) -> None:
+        if self._socket is None:
+            return
+        payload = {
+            "op": "load_stem_pack",
+            "profile_id": self._profile_id,
+            "duration": float(crossfade_seconds),
+            "layers": {
+                str(lid): str(path.resolve()).replace("\\", "/")
+                for lid, path in layers.items()
+                if path.is_file()
+            },
+        }
+        if not payload["layers"]:
+            logger.warning("Godot load_stem_pack: no valid layer paths")
+            return
+        self._send(payload)
+
+    def set_layer_gains(
+        self,
+        gains: dict[str, float],
+        slew_seconds: float = 1.0,
+    ) -> None:
+        if self._socket is None:
+            return
+        self._send(
+            {
+                "op": "set_layer_gains",
+                "gains": {str(k): float(v) for k, v in gains.items()},
+                "slew_seconds": float(slew_seconds),
+            }
+        )
+
     def crossfade_to_with_params(
         self, profile_id: str, duration_seconds: float, params: AudioParameters
     ) -> None:

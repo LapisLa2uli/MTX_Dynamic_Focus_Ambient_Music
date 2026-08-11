@@ -35,3 +35,36 @@ audio:
   godot_port: 8765
   godot_startup_timeout: 8.0
   fallback_to_placeholder: true
+
+adaptive_music:
+  enabled: true
+  intensity_smoothing: 0.70
+  enter_focus: 0.40
+  enter_deep_focus: 0.70
+  leave_deep_focus: 0.60
+  leave_focus: 0.30
+  min_state_seconds: 3.0
+  recovery_seconds: 10.0
+  default_crossfade_ms: 1500
+  master_volume: 0.75
+  gain_slew_seconds: 1.25
+  energy_limit: 1.35
+  recovery_peak: 0.55
+  # Optional overrides: layer_id → [[score, gain], ...]
+  layer_mix: {}
+
+generative_layers:
+  enabled: true
+  api_base_url: "http://127.0.0.1:7862"
+  model_size: small
+  timeout_seconds: 180
+  output_layers:
+    - texture
+    - melody_b
+
+stem_separation:
+  enabled: true
+  api_base_url: "http://127.0.0.1:7863"
+  model: htdemucs
+  timeout_seconds: 600
+  auto_on_upload: true

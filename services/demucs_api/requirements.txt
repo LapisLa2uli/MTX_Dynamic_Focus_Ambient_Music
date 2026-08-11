@@ -1,0 +1,8 @@
+# Isolated env — do NOT install into the MTX/PyQt conda env.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+numpy>=1.24
+soundfile>=0.12
+torch>=2.1
+torchaudio>=2.1
+demucs>=4.0.1
