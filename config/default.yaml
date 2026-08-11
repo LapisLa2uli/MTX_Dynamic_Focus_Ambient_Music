@@ -48,7 +48,7 @@ adaptive_music:
   default_crossfade_ms: 1500
   master_volume: 0.75
   gain_slew_seconds: 1.25
-  energy_limit: 1.35
+  energy_limit: 2.4
   recovery_peak: 0.55
   # Optional overrides: layer_id → [[score, gain], ...]
   layer_mix: {}

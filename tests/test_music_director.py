@@ -250,3 +250,22 @@ def test_layered_mode_loads_pack_and_sets_gains(tmp_path: Path):
     assert backend.gains_history
     high = backend.gains_history[-1]
     assert high.get("melody_a", 0) > high.get("rhythm", 1)
+
+
+def test_set_scenario_same_profile_keeps_song(tmp_path: Path):
+    _make_layered_song(tmp_path, "programming", "programming_01")
+    backend = FakeBackend()
+    director = MusicDirector(
+        tmp_path,
+        backend,
+        AdaptiveMusicConfig(min_state_seconds=0.0, intensity_smoothing=0.0),
+    )
+    director.set_scenario("programming", 0.2)
+    director.play()
+    song_before = director.active_song_id
+    director.set_scenario("programming", 0.85)
+    assert director.active_song_id == song_before
+    assert director.playback_mode == "layered"
+    assert backend.gains_history
+    assert backend.gains_history[-1].get("melody_a", 0) > 0.5
+

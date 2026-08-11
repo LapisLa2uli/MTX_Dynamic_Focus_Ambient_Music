@@ -17,6 +17,27 @@ MODEL_IDS = {
 }
 
 
+def _resolve_torch_device() -> str:
+    """Pick runtime device. Prefer CUDA; allow MUSICGEN_DEVICE=cuda|cpu|auto."""
+    import torch
+
+    requested = os.environ.get("MUSICGEN_DEVICE", "auto").strip().lower() or "auto"
+    cuda_ok = bool(torch.cuda.is_available())
+    if requested in {"cuda", "gpu"}:
+        if not cuda_ok:
+            raise RuntimeError(
+                "MUSICGEN_DEVICE=cuda but CUDA is unavailable. "
+                f"torch={getattr(torch, '__version__', '?')} at {getattr(torch, '__file__', '?')}. "
+                "Install a CUDA wheel into the musicgen env and start with PYTHONNOUSERSITE=1 "
+                "so a CPU torch from the user site-packages cannot shadow it."
+            )
+        return "cuda"
+    if requested == "cpu":
+        return "cpu"
+    # auto
+    return "cuda" if cuda_ok else "cpu"
+
+
 class MusicGenEngine:
     def __init__(self, model_size: str = "small") -> None:
         self.model_size = model_size if model_size in MODEL_IDS else "small"
@@ -43,14 +64,29 @@ class MusicGenEngine:
         import torch
         from transformers import AutoProcessor, MusicgenForConditionalGeneration
 
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = _resolve_torch_device()
         model_src = os.environ.get("MUSICGEN_MODEL_PATH", self.model_id)
-        logger.info("Loading %s on %s …", model_src, self.device)
+        use_fp16 = self.device.startswith("cuda") and os.environ.get(
+            "MUSICGEN_FP16", "1"
+        ).lower() not in {"0", "false", "no"}
+        dtype = torch.float16 if use_fp16 else torch.float32
+        logger.info(
+            "Loading %s on %s (dtype=%s, torch=%s) …",
+            model_src,
+            self.device,
+            dtype,
+            getattr(torch, "__version__", "?"),
+        )
+        if self.device.startswith("cuda"):
+            logger.info("CUDA device: %s", torch.cuda.get_device_name(0))
         self._processor = AutoProcessor.from_pretrained(model_src)
-        self._model = MusicgenForConditionalGeneration.from_pretrained(model_src)
+        self._model = MusicgenForConditionalGeneration.from_pretrained(
+            model_src,
+            torch_dtype=dtype,
+        )
         self._model.to(self.device)
         self._model.eval()
-        logger.info("MusicGen ready")
+        logger.info("MusicGen ready on %s", self.device)
 
     def generate(
         self,

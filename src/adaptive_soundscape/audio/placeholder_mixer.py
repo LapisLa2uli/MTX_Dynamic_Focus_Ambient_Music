@@ -62,6 +62,7 @@ class PlaceholderMixer:
         self._stem_target_positions: dict[str, int] = {}
         self._stem_pack_fade_remaining = 0
         self._stem_pack_fade_total = 1
+        self._stem_pack_paths: dict[str, Path] = {}
         # Live EQ / level for HomePage ring.
         self._current_level: float = 0.0
         self._n_bands = 48
@@ -96,6 +97,9 @@ class PlaceholderMixer:
             self._stem_positions.clear()
             self._stem_target_buffers.clear()
             self._stem_target_positions.clear()
+            self._stem_pack_paths.clear()
+            self._stem_pack_fade_remaining = 0
+            self._stem_mode = False
 
     def _edge_guard(self, length: int) -> int:
         """Skip baked loop-edge fades so incoming stems are not silent."""
@@ -248,6 +252,7 @@ class PlaceholderMixer:
     ) -> None:
         """Load a multi-layer stem pack and mix additively."""
         loaded: dict[str, np.ndarray] = {}
+        resolved: dict[str, Path] = {}
         for layer_id, path in layers.items():
             if not path.is_file():
                 logger.warning("load_stem_pack: missing %s → %s", layer_id, path)
@@ -257,10 +262,23 @@ class PlaceholderMixer:
                 logger.warning("load_stem_pack: decode failed %s", path)
                 continue
             loaded[layer_id] = data
+            resolved[layer_id] = path.resolve()
         if not loaded:
             logger.warning("load_stem_pack: no layers loaded")
             return
         with self._lock:
+            # Same pack already playing — keep playheads; avoid dual-offset overlap.
+            if (
+                self._stem_mode
+                and self._stem_buffers
+                and set(self._stem_buffers.keys()) == set(loaded.keys())
+                and self._stem_pack_paths == resolved
+            ):
+                for lid in loaded:
+                    self._stem_gains.setdefault(lid, 0.0)
+                    self._stem_gain_targets.setdefault(lid, self._stem_gains[lid])
+                return
+            self._stem_pack_paths = resolved
             if not self._stem_mode or not self._stem_buffers or crossfade_seconds <= 0:
                 self._stem_mode = True
                 self._stem_buffers = loaded
@@ -417,17 +435,23 @@ class PlaceholderMixer:
         for layer_id, buf in buffers.items():
             if buf is None or len(buf) == 0:
                 continue
-            g = float(gains.get(layer_id, 0.0))
-            if g <= 1e-6:
-                continue
-            pos = new_pos.get(layer_id, 0)
             length = len(buf)
-            layer = np.zeros(frames, dtype=np.float32)
-            for i in range(frames):
-                layer[i] = buf[pos]
-                pos = (pos + 1) % length
-            new_pos[layer_id] = pos
-            out += layer * g
+            pos = int(new_pos.get(layer_id, 0)) % length
+            # Always advance playheads — even when muted — so layers that share
+            # a common source stay phase-locked. Otherwise a layer that unmutes
+            # later restarts from the loop head and overlaps mid-phrase content
+            # still audible in harmony/pad.
+            end = pos + frames
+            if end <= length:
+                chunk = buf[pos:end]
+                new_pos[layer_id] = end % length
+            else:
+                first = length - pos
+                chunk = np.concatenate((buf[pos:], buf[: frames - first]))
+                new_pos[layer_id] = (frames - first) % length
+            g = float(gains.get(layer_id, 0.0))
+            if g > 1e-6:
+                out += chunk.astype(np.float32, copy=False) * g
         return np.clip(out, -1.0, 1.0), new_pos
 
     def _advance_stem_gains(self, frames: int) -> dict[str, float]:

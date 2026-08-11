@@ -113,3 +113,26 @@ def test_render_equal_power_mid_crossfade_keeps_energy(assets_dir: Path):
     # Linear equal-gain would use 0.5+0.5=1.0 of shaped; equal-power uses √2 ≈ 1.414 of each
     # path contribution in amplitude for correlated sources — key is no near-silence.
     assert float(np.min(np.abs(block))) > 0.3
+
+
+def test_muted_stem_playhead_stays_phase_locked(assets_dir: Path):
+    """Silent layers must keep advancing so unmute does not restart mid-phrase."""
+    mixer = PlaceholderMixer(assets_dir, sample_rate=44100, prefer_mp3=False, master_volume=1.0)
+    length = 44100
+    mixer._stem_mode = True
+    mixer._stem_buffers = {
+        "harmony": np.linspace(0, 1, length, dtype=np.float32),
+        "melody_a": np.linspace(0, 1, length, dtype=np.float32),
+    }
+    mixer._stem_positions = {"harmony": 100, "melody_a": 100}
+    mixer._stem_gains = {"harmony": 0.8, "melody_a": 0.0}
+    mixer._stem_gain_targets = dict(mixer._stem_gains)
+    mixer._stem_slew_remaining = 0
+    mixer._params = AudioParameters(0.5, 0.5, 0.5)
+    mixer._profile_id = "__stem__"
+    mixer._target_profile_id = "__stem__"
+
+    frames = 256
+    mixer._render(frames)
+    assert mixer._stem_positions["harmony"] == 100 + frames
+    assert mixer._stem_positions["melody_a"] == 100 + frames

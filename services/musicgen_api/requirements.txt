@@ -3,6 +3,8 @@ fastapi>=0.110
 uvicorn[standard]>=0.27
 numpy>=1.24
 soundfile>=0.12
+# Install a CUDA build explicitly (CPU wheels will force generation onto CPU):
+#   pip install --upgrade torch --index-url https://download.pytorch.org/whl/cu124
 torch>=2.1
 transformers==4.46.3
 tokenizers==0.20.3
