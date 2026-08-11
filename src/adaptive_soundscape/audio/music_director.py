@@ -195,7 +195,21 @@ class MusicDirector:
 
     # --- scenario / intensity ---
     def set_scenario(self, profile_id: str, focus_score: float | None = None) -> None:
+        same_profile = profile_id == self._scenario and self._song_dir is not None
         self._scenario = profile_id
+        if same_profile:
+            # Keep the active song/stems; only refresh intensity / gains.
+            if focus_score is not None:
+                self._smoothed = max(0.0, min(1.0, focus_score))
+            self._resolve_playback_mode()
+            if self._enabled:
+                if self._playback_mode == "layered":
+                    # Reload only if layer files changed; otherwise just re-apply gains.
+                    self._load_layered(force=False)
+                else:
+                    self._ensure_playing_current()
+            return
+
         exclude = self._song_dir
         song = pick_random_song(
             self.assets_dir, profile_id, exclude=exclude, rng=self._rng
