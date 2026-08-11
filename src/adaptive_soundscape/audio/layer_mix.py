@@ -47,12 +47,14 @@ class LayerCurve:
 
 def default_layer_curves() -> dict[str, LayerCurve]:
     return {
-        "pad": LayerCurve([(0.0, 0.70), (0.4, 0.80), (0.7, 0.65), (1.0, 0.55)]),
-        "harmony": LayerCurve([(0.0, 0.25), (0.4, 0.70), (0.7, 0.85), (1.0, 0.75)]),
-        "melody_a": LayerCurve([(0.0, 0.00), (0.4, 0.45), (0.7, 0.90), (1.0, 0.85)]),
+        "pad": LayerCurve([(0.0, 0.70), (0.4, 0.80), (0.7, 0.55), (1.0, 0.40)]),
+        "harmony": LayerCurve([(0.0, 0.25), (0.4, 0.70), (0.7, 0.75), (1.0, 0.55)]),
+        # Mute through 50% focus; full by 80%.
+        "melody_a": LayerCurve([(0.0, 0.00), (0.5, 0.00), (0.8, 1.00), (1.0, 1.00)]),
         "rhythm": LayerCurve([(0.0, 0.35), (0.4, 0.55), (0.7, 0.25), (1.0, 0.10)]),
-        "melody_b": LayerCurve([(0.0, 0.00), (0.4, 0.00), (0.7, 0.55), (1.0, 0.80)]),
-        "texture": LayerCurve([(0.0, 0.00), (0.4, 0.10), (0.7, 0.40), (1.0, 0.60)]),
+        # Deep-focus only: silent below 90%, present from 90% upward.
+        "melody_b": LayerCurve([(0.0, 0.00), (0.899, 0.00), (0.9, 0.55), (1.0, 0.85)]),
+        "texture": LayerCurve([(0.0, 0.00), (0.899, 0.00), (0.9, 0.40), (1.0, 0.70)]),
         "recovery": LayerCurve([(0.0, 0.00), (1.0, 0.00)]),
     }
 
@@ -61,7 +63,7 @@ def default_layer_curves() -> dict[str, LayerCurve]:
 class LayerMixConfig:
     curves: dict[str, LayerCurve] = field(default_factory=default_layer_curves)
     gain_slew_seconds: float = 1.25
-    energy_limit: float = 1.35
+    energy_limit: float = 2.4
     recovery_peak: float = 0.55
     recovery_seconds: float = 10.0
 

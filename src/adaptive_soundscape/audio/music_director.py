@@ -74,7 +74,7 @@ class AdaptiveMusicConfig:
     default_crossfade_ms: int = 1500
     master_volume: float = 0.75
     gain_slew_seconds: float = 1.25
-    energy_limit: float = 1.35
+    energy_limit: float = 2.4
     recovery_peak: float = 0.55
     layer_mix: dict[str, list[list[float]]] = field(default_factory=dict)
 
@@ -511,7 +511,7 @@ def config_from_settings(adaptive: Any) -> AdaptiveMusicConfig:
         default_crossfade_ms=int(getattr(adaptive, "default_crossfade_ms", 1500)),
         master_volume=float(getattr(adaptive, "master_volume", 0.75)),
         gain_slew_seconds=float(getattr(adaptive, "gain_slew_seconds", 1.25)),
-        energy_limit=float(getattr(adaptive, "energy_limit", 1.35)),
+        energy_limit=float(getattr(adaptive, "energy_limit", 2.4)),
         recovery_peak=float(getattr(adaptive, "recovery_peak", 0.55)),
         layer_mix=layer_mix,
     )

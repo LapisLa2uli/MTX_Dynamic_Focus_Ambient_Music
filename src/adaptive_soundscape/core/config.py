@@ -66,7 +66,7 @@ class AdaptiveMusicConfigModel(BaseModel):
     default_crossfade_ms: int = 1500
     master_volume: float = 0.75
     gain_slew_seconds: float = 1.25
-    energy_limit: float = 1.35
+    energy_limit: float = 2.4
     recovery_peak: float = 0.55
     layer_mix: dict[str, list[list[float]]] = Field(default_factory=dict)
 

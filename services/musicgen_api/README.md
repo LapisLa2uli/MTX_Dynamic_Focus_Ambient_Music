@@ -15,12 +15,24 @@ pip install -r requirements.txt
 
 GPU strongly recommended for `facebook/musicgen-small`.
 
+Install a **CUDA** PyTorch wheel (default `pip install torch` often pulls a CPU build).
+Also start with `PYTHONNOUSERSITE=1` (set by `run.ps1`) so a user-site CPU torch
+under `%APPDATA%\Python` cannot shadow the conda env:
+
+```powershell
+conda activate musicgen
+pip install --upgrade torch --index-url https://download.pytorch.org/whl/cu124
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+
 ## Run
 
 ```powershell
 .\run.ps1
 ```
 
+`run.ps1` defaults to `MUSICGEN_DEVICE=cuda` and uses `model_cache\local_musicgen_small`
+when present (offline). Override with `$env:MUSICGEN_DEVICE = "cpu"` only for debugging.
 Stub mode (no model download, synthetic WAV — for wiring tests):
 
 ```powershell
