@@ -305,6 +305,25 @@ def test_separate_and_install_overwrites_stubs(tmp_path: Path, demucs_server: st
     assert separate_and_install_stems(song, client=client) == []
 
 
+def test_separate_and_install_reports_progress(tmp_path: Path, demucs_server: str):
+    src = tmp_path / "seed.wav"
+    src.write_bytes(_sine_wav_bytes())
+    dest = add_track(tmp_path, "programming", src, intensity=MusicIntensity.FOCUS)
+    song = dest.parent.parent
+    migrate_songs_to_layered_stubs(tmp_path)
+    events: list[tuple[int, str]] = []
+    client = DemucsClient(demucs_server, timeout_seconds=10.0)
+    separate_and_install_stems(
+        song,
+        client=client,
+        on_progress=lambda pct, msg: events.append((pct, msg)),
+    )
+    assert events
+    assert events[0][0] >= 0
+    assert events[-1][0] == 100
+    assert any("Demucs" in msg or "Writing" in msg for _, msg in events)
+
+
 def test_highpass_preserves_wav_header():
     src = _sine_wav_bytes(freq=440.0)
     out = _highpass_wav(src, cutoff_hz=300.0)

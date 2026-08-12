@@ -424,8 +424,8 @@ class PlaceholderMixer:
         return np.clip(shaped, -1.0, 1.0)
 
     def _apply_muffle_lpf(self, block: np.ndarray, muffling: float) -> np.ndarray:
-        """Stateful one-pole low-pass; cutoff falls as muffling rises (~8 kHz → ~400 Hz)."""
-        cutoff = 8000.0 * (1.0 - muffling) + 400.0 * muffling
+        """Stateful one-pole low-pass; cutoff falls as muffling rises (~8 kHz → ~180 Hz)."""
+        cutoff = 8000.0 * (1.0 - muffling) + 180.0 * muffling
         # One-pole coefficient: alpha ≈ 1 - exp(-2π fc / fs)
         alpha = 1.0 - math.exp(-2.0 * math.pi * cutoff / float(self.sample_rate))
         alpha = max(1e-4, min(1.0, alpha))

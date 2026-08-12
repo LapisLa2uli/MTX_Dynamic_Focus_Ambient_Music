@@ -23,7 +23,7 @@ This index is **non-clinical** and **non-surveillance**. It estimates likelihood
 
 ## Scoring
 
-### Measured weighted sum
+### Measured weighted sum (calibrated / full)
 
 \[
 W = 0.35 A + 0.25 S + 0.20 I + 0.20 P
@@ -33,17 +33,30 @@ Missing components drop their weight; remaining weights renormalize to 1.
 
 `measured_focus = 100 · W`
 
+### Uncalibrated default (no user patterns yet)
+
+Until a calibration pattern exists for the task profile, FLI uses **only** the
+default 3-parameter metric — alignment **A**, switch stability **S**, and idle
+quality **I** — with no probe term and no pattern similarity:
+
+\[
+W = \mathrm{renorm}(0.35 A + 0.25 S + 0.20 I)
+\]
+
+Smoothing is also lighter in this mode so the focus bar tracks live activity
+more visibly. After calibration, probe (P) and pattern assist are enabled.
+
 ### Calibration-pattern similarity
 
 During calibration, a privacy-safe feature vector is stored (category time fractions, alignment ratio, switch rate, idle metrics, optional probe score). Live windows compute cosine similarity to stored patterns for the task profile (`pattern_focus = 100 · similarity`).
 
 ### Final focus level
 
-\[
-\texttt{focus\_index} = \max(\texttt{measured\_focus}, \texttt{pattern\_focus})
-\]
+When calibrated, pattern may gently assist a moderate/high measured score (gated;
+it cannot floor focus while measured has collapsed). When uncalibrated, focus is
+measured A/S/I only.
 
-If only one side is available, that value is used. Result payload includes `focus_source`: `measured` | `pattern_similarity` | `tie`.
+Result payload includes `focus_source`: `measured` | `pattern_similarity` | `tie`.
 
 ## Events
 

@@ -6,3 +6,4 @@ soundfile>=0.12
 torch>=2.1
 torchaudio>=2.1
 demucs>=4.0.1
+einops>=0.7

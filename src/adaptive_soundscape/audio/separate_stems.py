@@ -9,6 +9,7 @@ import logging
 import wave
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
@@ -490,18 +491,29 @@ def separate_and_install_stems(
     client: DemucsClient,
     model: str = "htdemucs",
     force: bool = False,
+    on_progress: Callable[[int, str], None] | None = None,
 ) -> list[Path]:
     """
     Separate the song seed mix into base layers and update the manifest.
 
     Returns written layer paths. Raises RuntimeError / OSError on failure.
     Skips when needs_separation is false (unless force).
+
+    ``on_progress(percent, message)`` is optional and may be called from a
+    worker thread — keep it thread-safe (e.g. Qt signals).
     """
+
+    def _progress(percent: int, message: str) -> None:
+        if on_progress is not None:
+            on_progress(max(0, min(100, int(percent))), message)
+
     song_dir = Path(song_dir)
     if not needs_separation(song_dir, force=force):
         logger.info("Skipping separation for %s (already separated or custom stems)", song_dir)
+        _progress(100, "Already separated — nothing to do")
         return []
 
+    _progress(5, "Loading song manifest…")
     manifest = load_manifest(song_dir)
     if manifest is None:
         raise FileNotFoundError(f"No manifest in {song_dir}")
@@ -509,12 +521,23 @@ def separate_and_install_stems(
     if seed is None:
         raise FileNotFoundError(f"No seed audio in {song_dir}")
 
+    _progress(12, f"Reading mix ({seed.name})…")
     audio_bytes = seed.read_bytes()
+
+    _progress(
+        20,
+        "Separating stems with Demucs (this can take several minutes)…",
+    )
     result = client.separate(audio_bytes, filename=seed.name, model=model)
+
+    _progress(78, "Mapping Demucs stems to focus layers…")
     layer_wavs, mapping = map_stems_to_layers(result.stems)
 
     written: list[Path] = []
-    for layer_id in BASE_LAYER_IDS:
+    base_ids = list(BASE_LAYER_IDS)
+    for i, layer_id in enumerate(base_ids):
+        pct = 80 + int(15 * (i + 1) / max(len(base_ids), 1))
+        _progress(pct, f"Writing layer “{layer_id}”…")
         wav = layer_wavs[layer_id]
         layer_dir = song_dir / layer_id
         layer_dir.mkdir(parents=True, exist_ok=True)
@@ -533,6 +556,7 @@ def separate_and_install_stems(
             baseGain=0.75,
         )
 
+    _progress(96, "Updating manifest…")
     manifest.playback_mode = "layered"
     save_manifest(song_dir, manifest)
 
@@ -546,5 +570,6 @@ def separate_and_install_stems(
         "layers": {lid: f"{lid}/{lid}_01.wav" for lid in BASE_LAYER_IDS},
     }
     write_separation_meta(song_dir / SEPARATION_META_NAME, meta)
+    _progress(100, "Stem separation complete")
     logger.info("Separated stems for %s → %s", song_dir.name, [p.name for p in written])
     return written

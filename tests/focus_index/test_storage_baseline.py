@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from adaptive_soundscape.focus_index.baseline import summarize_baseline
 from adaptive_soundscape.focus_index.config import FocusIndexConfig
 from adaptive_soundscape.focus_index.models import FocusStatus
@@ -72,4 +74,10 @@ def test_service_max_with_calibration_pattern(tmp_path: Path):
     assert result.focus_index is not None
     assert result.measured_focus is not None
     assert result.pattern_similarity is not None
-    assert result.focus_index == max(result.measured_focus, result.pattern_focus or 0)
+    # Pattern may assist but cannot override a collapsed measured score.
+    if result.measured_focus < 50.0:
+        assert result.focus_index == pytest.approx(result.measured_focus)
+    else:
+        assist_cap = result.measured_focus + 12.0
+        assert result.focus_index <= max(result.measured_focus, assist_cap) + 1e-6
+        assert result.focus_index >= result.measured_focus - 1e-6

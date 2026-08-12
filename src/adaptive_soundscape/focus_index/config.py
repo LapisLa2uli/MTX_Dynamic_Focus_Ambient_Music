@@ -37,6 +37,12 @@ class FocusIndexConfig:
     band_moderate: float = 60.0
     band_high: float = 80.0
 
+    # Recency decay for live scoring (seconds). Smaller → snappier distraction response.
+    recency_tau_seconds: float = 90.0
+    # Pattern may only assist when measured ≥ gate; lift capped at assist_max points.
+    pattern_gate_low: float = 50.0
+    pattern_assist_max: float = 12.0
+
     db_path: Path = field(default_factory=default_db_path)
 
     @property

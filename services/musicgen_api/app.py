@@ -42,7 +42,7 @@ def _startup() -> None:
 def health() -> dict[str, Any]:
     try:
         engine = get_engine(DEFAULT_MODEL)
-        return {
+        info: dict[str, Any] = {
             "ok": True,
             "loaded": engine.loaded,
             "stub": engine.stub_mode,
@@ -50,6 +50,15 @@ def health() -> dict[str, Any]:
             "model": engine.model_id,
             "models": list(MODEL_IDS.keys()),
         }
+        try:
+            import torch
+
+            info["torch"] = getattr(torch, "__version__", "?")
+            info["torch_file"] = getattr(torch, "__file__", "?")
+            info["cuda_available"] = bool(torch.cuda.is_available())
+        except Exception as torch_exc:  # pragma: no cover
+            info["torch_error"] = str(torch_exc)
+        return info
     except Exception as exc:
         return {"ok": False, "loaded": False, "error": str(exc)}
 

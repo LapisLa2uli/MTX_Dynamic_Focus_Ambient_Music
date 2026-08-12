@@ -56,7 +56,9 @@ class FocusIndexService:
         self._force_aligned = False
         self._last_result: FocusIndexResult | None = None
         self._ema = 0.5
-        self.smoothing = 0.85
+        self.smoothing = 0.55
+        # Snappier bar motion before the user has calibration patterns.
+        self.uncalibrated_smoothing = 0.30
 
     def set_task_profile(self, task_profile: str) -> None:
         self.bridge.set_task_profile(task_profile)
@@ -87,6 +89,12 @@ class FocusIndexService:
     def record_probe(self, event: AttentionProbeEvent) -> None:
         self.storage.insert_event(event)
 
+    def has_calibration_patterns(self, task_profile: str | None = None) -> bool:
+        """True when a dedicated or session pattern exists for the profile."""
+        profile = task_profile or self.bridge.task_profile
+        patterns = self.storage.load_patterns(profile, include_session=True)
+        return bool(patterns)
+
     def score_current_window(
         self,
         *,
@@ -106,14 +114,22 @@ class FocusIndexService:
         ]
         use_events = profile_events or events
 
-        current_vec = vector_from_events(
-            use_events,
-            window_start=start,
-            window_end=end,
-            config=self.config,
-        )
         patterns = self.storage.load_patterns(profile, include_session=True)
-        similarity = max_similarity(current_vec, patterns)
+        calibrated = bool(patterns)
+
+        if calibrated:
+            current_vec = vector_from_events(
+                use_events,
+                window_start=start,
+                window_end=end,
+                config=self.config,
+            )
+            similarity = max_similarity(current_vec, patterns)
+            measured_keys: tuple[str, ...] = ("A", "S", "I", "P")
+        else:
+            # Default non-preference metric: weighted A/S/I only (no probe / pattern).
+            similarity = None
+            measured_keys = ("A", "S", "I")
 
         baseline = baseline_for_profile(self.storage, profile, self.config)
         result = score_window(
@@ -125,10 +141,12 @@ class FocusIndexService:
             baseline_status=baseline.status
             if baseline.status == FocusStatus.CALIBRATING
             else None,
+            measured_keys=measured_keys,
         )
         result.task_profile = profile
         result.extras["baseline_samples"] = baseline.sample_count
         result.extras["baseline_median"] = baseline.median
+        result.extras["calibrated"] = calibrated
         if persist and result.focus_index is not None:
             self.storage.save_aggregate(result)
         self._last_result = result
@@ -145,7 +163,10 @@ class FocusIndexService:
         self.ingest_tick(snapshot, context, interval_s=interval_s)
         result = self.score_current_window(persist=True)
         raw = result.as_unit_score()
-        self._ema = self.smoothing * self._ema + (1.0 - self.smoothing) * raw
+        calibrated = bool(result.extras.get("calibrated"))
+        alpha = self.smoothing if calibrated else self.uncalibrated_smoothing
+        alpha = max(0.0, min(0.99, float(alpha)))
+        self._ema = alpha * self._ema + (1.0 - alpha) * raw
         score = max(0.0, min(1.0, self._ema))
         state = _band_to_focus_state(result, context)
         return FocusEstimate(focus_score=score, state=state, raw_score=raw)

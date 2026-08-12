@@ -11,6 +11,7 @@ from typing import Any, Protocol
 
 from adaptive_soundscape.audio.album import pick_random_song
 from adaptive_soundscape.audio.layer_mix import (
+    LAYER_IDS,
     LayerMixConfig,
     compute_layer_gains,
     curves_from_mapping,
@@ -64,7 +65,7 @@ class TrackAudioBackend(Protocol):
 @dataclass
 class AdaptiveMusicConfig:
     enabled: bool = True
-    intensity_smoothing: float = 0.70
+    intensity_smoothing: float = 0.45
     enter_focus: float = 0.40
     enter_deep_focus: float = 0.70
     leave_deep_focus: float = 0.60
@@ -118,6 +119,10 @@ class MusicDirector:
         self._was_deep = False
         self._enabled = False
         self._muted = False
+        self._debug_layer_override = False
+        self._debug_layer_gains: dict[str, float] = {
+            lid: 0.7 for lid in LAYER_IDS
+        }
         self._volume = self.config.master_volume
         self._params = AudioParameters(0.5, 0.4, 0.55)
 
@@ -234,6 +239,12 @@ class MusicDirector:
             else:
                 self._transition_to(desired, force=True)
 
+    def force_intensity(self, focus_score: float) -> None:
+        """Snap smoothed intensity (used by debug concentration override)."""
+        self._smoothed = max(0.0, min(1.0, float(focus_score)))
+        if self._playback_mode == "layered":
+            self._apply_layered_gains()
+
     def update_intensity(self, focus_score: float) -> None:
         if not self.config.enabled:
             return
@@ -344,7 +355,39 @@ class MusicDirector:
         self._active_track_id = "+".join(sorted(self._layer_paths.keys()))
         self._active_path = None
 
+    def set_debug_layer_override(
+        self, enabled: bool, gains: dict[str, float] | None = None
+    ) -> None:
+        """When enabled, use manual per-layer gains instead of focus curves."""
+        self._debug_layer_override = bool(enabled)
+        if gains:
+            for key, value in gains.items():
+                self._debug_layer_gains[str(key)] = max(0.0, min(1.0, float(value)))
+        if self._playback_mode == "layered":
+            self._apply_layered_gains()
+
+    def set_debug_layer_gain(self, layer_id: str, gain: float) -> None:
+        self._debug_layer_gains[str(layer_id)] = max(0.0, min(1.0, float(gain)))
+        if self._debug_layer_override and self._playback_mode == "layered":
+            self._apply_layered_gains()
+
     def _apply_layered_gains(self) -> None:
+        if self._debug_layer_override:
+            available = set(self._layer_paths.keys())
+            gains = {
+                lid: self._debug_layer_gains.get(lid, 0.0)
+                for lid in LAYER_IDS
+                if lid in available
+            }
+            self._layer_gains = gains
+            if not self._enabled:
+                return
+            try:
+                self.backend.set_layer_gains(gains, min(0.35, self._layer_mix.gain_slew_seconds))
+            except Exception:
+                logger.exception("MusicDirector: set_layer_gains (debug) failed")
+            return
+
         recovery_active = (
             time.monotonic() < self._recovery_until and "recovery" in self._layer_paths
         )

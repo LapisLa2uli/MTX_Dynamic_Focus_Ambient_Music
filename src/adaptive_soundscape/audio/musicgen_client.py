@@ -79,10 +79,30 @@ class MusicGenClient:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
                 raw = resp.read().decode("utf-8")
-        except urllib.error.URLError as exc:
+        except TimeoutError as exc:
             raise RuntimeError(
-                f"MusicGen API unreachable at {url}. "
-                "Start services/musicgen_api (run.ps1) first."
+                f"MusicGen timed out after {self.timeout_seconds:.0f}s at {url}. "
+                "A full ~27s layer often needs 2–8 minutes on GPU. "
+                "Check nvidia-smi for musicgen python, and "
+                "services/musicgen_api/_sidecar_7862.log. "
+                "If torch is CPU-only (often shadowed from %APPDATA%\\Python), "
+                "restart the API with PYTHONNOUSERSITE=1."
+            ) from exc
+        except urllib.error.URLError as exc:
+            reason = str(getattr(exc, "reason", exc))
+            if "timed out" in reason.lower() or "timeout" in reason.lower():
+                raise RuntimeError(
+                    f"MusicGen timed out after {self.timeout_seconds:.0f}s at {url}. "
+                    "A full ~27s layer often needs 2–8 minutes on GPU. "
+                    "Check nvidia-smi for musicgen python, and "
+                    "services/musicgen_api/_sidecar_7862.log. "
+                    "If torch is CPU-only (often shadowed from %APPDATA%\\Python), "
+                    "restart the API with PYTHONNOUSERSITE=1."
+                ) from exc
+            raise RuntimeError(
+                f"MusicGen API unreachable at {url} ({reason}). "
+                "The app should auto-start services/musicgen_api; "
+                "or run services/musicgen_api/run.ps1 manually."
             ) from exc
         try:
             parsed = json.loads(raw)

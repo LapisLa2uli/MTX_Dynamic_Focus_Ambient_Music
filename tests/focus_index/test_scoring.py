@@ -1,4 +1,4 @@
-"""Unit tests for FLI scoring and max(measured, pattern) combine."""
+"""Unit tests for FLI scoring and gated pattern combine."""
 
 from __future__ import annotations
 
@@ -150,10 +150,20 @@ def test_combine_max_measured():
     assert source == FocusSource.MEASURED
 
 
-def test_combine_max_pattern():
-    focus, pattern, source = combine_focus(40.0, 0.85)
-    assert focus == pytest.approx(85.0)
+def test_combine_pattern_assists_when_measured_ok():
+    # measured 55 (>= gate), pattern 0.85 → assist capped at measured+12 = 67
+    focus, pattern, source = combine_focus(55.0, 0.85)
+    assert focus == pytest.approx(67.0)
+    assert pattern == pytest.approx(85.0)
     assert source == FocusSource.PATTERN_SIMILARITY
+
+
+def test_combine_low_measured_ignores_pattern_floor():
+    # Previously max() would keep focus at 85; gated rule trusts measured.
+    focus, pattern, source = combine_focus(40.0, 0.85)
+    assert focus == pytest.approx(40.0)
+    assert pattern == pytest.approx(85.0)
+    assert source == FocusSource.MEASURED
 
 
 def test_combine_tie_and_partial():
@@ -167,7 +177,7 @@ def test_combine_tie_and_partial():
     assert focus is None and source is None
 
 
-def test_pattern_similarity_and_max_rule():
+def test_pattern_similarity_gated_on_distraction():
     a = {"aligned_active_ratio": 1.0, "cat_code_editor": 1.0}
     b = {"aligned_active_ratio": 0.95, "cat_code_editor": 0.9}
     sim = cosine_similarity(a, b)
@@ -182,8 +192,52 @@ def test_pattern_similarity_and_max_rule():
         pattern_similarity=0.95,
     )
     assert result.pattern_focus == pytest.approx(95.0)
-    assert result.focus_index == max(result.measured_focus or 0, result.pattern_focus or 0)
-    assert result.focus_source == FocusSource.PATTERN_SIMILARITY
+    assert result.measured_focus is not None
+    # Distraction measured stays below the gate → pattern cannot floor the score.
+    assert result.focus_index == pytest.approx(result.measured_focus)
+    assert result.focus_source == FocusSource.MEASURED
+
+
+def test_uncalibrated_asi_only_ignores_probe_and_pattern():
+    """Without calibration, measured uses A/S/I only (3-parameter default)."""
+    events = distracting_session()
+    # Stale-looking probe that would otherwise pull the score.
+    events.append(
+        AttentionProbeEvent(
+            timestamp=END,
+            accuracy=1.0,
+            omission_rate=0.0,
+            commission_rate=0.0,
+            rt_mean_ms=280,
+            rt_std_ms=15,
+        )
+    )
+    full = score_window(
+        events,
+        window_start=START,
+        window_end=END,
+        config=CFG,
+        pattern_similarity=0.95,
+        measured_keys=("A", "S", "I", "P"),
+    )
+    asi = score_window(
+        events,
+        window_start=START,
+        window_end=END,
+        config=CFG,
+        pattern_similarity=None,
+        measured_keys=("A", "S", "I"),
+    )
+    assert "uncalibrated_asi_only" in asi.uncertainties
+    assert asi.extras.get("measured_keys") == ["A", "S", "I"]
+    assert asi.pattern_focus is None
+    assert asi.measured_focus is not None
+    assert full.measured_focus is not None
+    # Perfect probe should raise full measured above A/S/I-only.
+    assert full.measured_focus > asi.measured_focus
+    # Distracting ASI score must stay clearly below a high pattern floor.
+    assert asi.focus_index == pytest.approx(asi.measured_focus)
+    assert asi.focus_index < 70
 
 
 def test_malformed_idle_still_scores():

@@ -24,16 +24,18 @@ from adaptive_soundscape.audio.album import (
     list_songs,
     list_tracks,
 )
-from adaptive_soundscape.audio.demucs_client import DemucsClient
-from adaptive_soundscape.audio.generate_layers import generate_and_install_layer
 from adaptive_soundscape.audio.loader import SUPPORTED_EXTENSIONS
 from adaptive_soundscape.audio.music_manifest import (
     MusicIntensity,
     migrate_songs_to_layered_stubs,
 )
-from adaptive_soundscape.audio.musicgen_client import MusicGenClient
 from adaptive_soundscape.core.config import load_settings
-from adaptive_soundscape.ui.album_manager import AlbumManagerDialog, _StemSeparateThread
+from adaptive_soundscape.ui.album_manager import (
+    AlbumManagerDialog,
+    _MusicGenThread,
+    _StemSeparateThread,
+    run_stem_separation_with_progress,
+)
 
 # Profile → icon mapping for tab buttons
 PROFILE_ICONS: dict[str, str] = {
@@ -478,68 +480,46 @@ class _ProfilePanel(QWidget):
         self._maybe_auto_separate(song_dir)
 
     def _maybe_auto_separate(self, song_dir: Path) -> None:
-        settings = load_settings()
-        cfg = settings.stem_separation
-        if not cfg.enabled or not cfg.auto_on_upload:
-            return
-        client = DemucsClient(cfg.api_base_url, timeout_seconds=cfg.timeout_seconds)
-        try:
-            client.health()
-        except RuntimeError as exc:
-            QMessageBox.warning(
-                self,
-                "Stem separation skipped",
-                f"{exc}\n\nStub layers were installed. Start services/demucs_api "
-                "then run:\npython scripts/separate_album_stems.py",
-            )
-            return
-
-        progress = QProgressDialog(
-            f"Separating stems for {song_dir.name}…",
-            None,
-            0,
-            0,
-            self,
-        )
-        progress.setWindowTitle("Stem separation")
-        progress.setMinimumDuration(0)
-        progress.setCancelButton(None)
-        progress.setModal(True)
-        progress.show()
-
-        thread = _StemSeparateThread(
-            song_dir,
-            api_base_url=cfg.api_base_url,
-            timeout_seconds=cfg.timeout_seconds,
-            model=cfg.model,
-            parent=self,
-        )
-        self._stem_thread = thread
-
         def _on_ok(paths: list) -> None:
-            progress.close()
             self.refresh()
             self.soundtrack_swapped.emit()
             QMessageBox.information(
                 self,
-                "Stems ready",
-                f"Separated {len(paths)} base layers for {song_dir.name}.",
+                "Layers ready",
+                f"Processed {len(paths)} layer file(s) for {song_dir.name}.",
             )
 
         def _on_fail(message: str) -> None:
-            progress.close()
             migrate_songs_to_layered_stubs(self._assets_dir)
             self.refresh()
             self.soundtrack_swapped.emit()
+            tip = ""
+            lower = message.lower()
+            if "conda env" in lower or "could not find" in lower:
+                tip = (
+                    "\n\nCreate the demucs / musicgen conda envs "
+                    "(see services/*/README.md)."
+                )
+            elif "timed out" in lower:
+                tip = (
+                    "\n\nGeneration can take several minutes. "
+                    "See generative_layers.timeout_seconds in config/default.yaml."
+                )
             QMessageBox.warning(
                 self,
-                "Stem separation failed",
-                f"{message}\n\nStub layers were installed as a fallback.",
+                "Layer processing failed",
+                f"{message}{tip}\n\nStub layers were installed as a fallback.",
             )
 
-        thread.succeeded.connect(_on_ok)
-        thread.failed.connect(_on_fail)
-        thread.start()
+        thread = run_stem_separation_with_progress(
+            self,
+            song_dir,
+            on_success=_on_ok,
+            on_failure=_on_fail,
+            profile_id=self._profile_id,
+        )
+        if thread is not None:
+            self._stem_thread = thread
 
     def _generate_ai(self) -> None:
         song = self._latest_song
@@ -551,33 +531,44 @@ class _ProfilePanel(QWidget):
         if not gen.enabled:
             QMessageBox.warning(self, "Generate", "generative_layers.enabled is false.")
             return
-        client = MusicGenClient(gen.api_base_url, timeout_seconds=gen.timeout_seconds)
-        try:
-            client.health()
-        except RuntimeError as exc:
-            QMessageBox.warning(self, "MusicGen offline", str(exc))
-            return
-        written: list[str] = []
-        for layer_id in gen.output_layers:
-            try:
-                dest = generate_and_install_layer(
-                    song,
-                    scenario=self._profile_id,
-                    layer_id=layer_id,
-                    client=client,
-                    model_size=gen.model_size,
-                )
-                written.append(dest.name)
-            except Exception as exc:
-                QMessageBox.warning(self, "Generate failed", f"{layer_id}: {exc}")
-                return
-        self.refresh()
-        self.soundtrack_swapped.emit()
-        QMessageBox.information(
-            self,
-            "AI layers ready",
-            f"Wrote {', '.join(written)} for {song.name}.",
-        )
+
+        progress = QProgressDialog(self)
+        progress.setWindowTitle("Generate AI layers")
+        progress.setLabelText("Preparing MusicGen…")
+        progress.setRange(0, 100)
+        progress.setValue(0)
+        progress.setMinimumDuration(0)
+        progress.setCancelButton(None)
+        progress.setWindowModality(Qt.WindowModality.NonModal)
+        progress.setMinimumWidth(420)
+        progress.show()
+
+        thread = _MusicGenThread(song, profile_id=self._profile_id, parent=self)
+        self._gen_thread = thread
+
+        def _on_progress(pct: int, message: str) -> None:
+            progress.setLabelText(message)
+            if pct >= progress.value():
+                progress.setValue(pct)
+
+        def _on_ok(paths: list) -> None:
+            progress.close()
+            self.refresh()
+            self.soundtrack_swapped.emit()
+            QMessageBox.information(
+                self,
+                "AI layers ready",
+                f"Wrote {', '.join(Path(p).name for p in paths)} for {song.name}.",
+            )
+
+        def _on_fail(message: str) -> None:
+            progress.close()
+            QMessageBox.warning(self, "Generate failed", message)
+
+        thread.progress.connect(_on_progress)
+        thread.succeeded.connect(_on_ok)
+        thread.failed.connect(_on_fail)
+        thread.start()
 
     def set_assets_dir(self, assets_dir: Path) -> None:
         self._assets_dir = assets_dir

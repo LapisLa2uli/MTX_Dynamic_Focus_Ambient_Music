@@ -16,7 +16,7 @@ from adaptive_soundscape.activity.monitor import ActivityMonitor
 from adaptive_soundscape.audio.factory import create_audio_backend
 from adaptive_soundscape.audio.music_director import MusicDirector, config_from_settings
 from adaptive_soundscape.audio.music_manifest import MusicIntensity
-from adaptive_soundscape.cognitive.estimator import FocusEstimator
+from adaptive_soundscape.cognitive.estimator import FocusEstimate, FocusEstimator
 from adaptive_soundscape.context.classifier import resolve_context
 from adaptive_soundscape.context.inferer import ContextInferer
 from adaptive_soundscape.context.persistence import ContextPersistence
@@ -92,6 +92,9 @@ class AdaptiveSoundscapeApp:
                 probe_ttl_minutes=fli_cfg.probe_ttl_minutes,
                 retention_days=fli_cfg.retention_days,
                 aligned_switch_penalty=fli_cfg.aligned_switch_penalty,
+                recency_tau_seconds=fli_cfg.recency_tau_seconds,
+                pattern_gate_low=fli_cfg.pattern_gate_low,
+                pattern_assist_max=fli_cfg.pattern_assist_max,
                 db_path=db_path,
             ),
             db_path=db_path,
@@ -106,6 +109,9 @@ class AdaptiveSoundscapeApp:
         self.calibration = CalibrationController()
         self._muffling_strength = float(self.settings.muffling.strength)
         self._probes_enabled = True
+        self._debug_focus_override = False
+        self._debug_focus_score = 0.6
+        self._debug_layer_override = False
         self.transition = TransitionController(
             deep_focus_crossfade_seconds=self.settings.transition.deep_focus_crossfade_seconds,
             distraction_recovery_seconds=self.settings.transition.distraction_recovery_seconds,
@@ -193,6 +199,9 @@ class AdaptiveSoundscapeApp:
         sp.probe_requested.connect(self._on_probe_requested)
         sp.export_focus_data_requested.connect(self._on_export_focus_data)
         sp.delete_focus_data_requested.connect(self._on_delete_focus_data)
+        sp.debug_focus_override_changed.connect(self._on_debug_focus_override)
+        sp.debug_layer_override_changed.connect(self._on_debug_layer_override)
+        sp.debug_layer_gain_changed.connect(self._on_debug_layer_gain)
 
         self._ui_prefs = load_ui_preferences()
         self._main_theme = self._ui_prefs.main_theme or "unknown"
@@ -470,6 +479,24 @@ class AdaptiveSoundscapeApp:
         self.settings.muffling.strength = self._muffling_strength
         self._persist_user_state()
 
+    def _on_debug_focus_override(self, enabled: bool, score: float) -> None:
+        self._debug_focus_override = bool(enabled)
+        self._debug_focus_score = max(0.0, min(1.0, float(score)))
+        if self._debug_focus_override and self._audio_running:
+            # Snap director smoothing so the audition responds immediately.
+            self.director.force_intensity(self._debug_focus_score)
+
+    def _on_debug_layer_override(self, enabled: bool) -> None:
+        self._debug_layer_override = bool(enabled)
+        gains = getattr(self.window.settings_page, "_debug_layer_gains", None)
+        self.director.set_debug_layer_override(
+            self._debug_layer_override,
+            dict(gains) if isinstance(gains, dict) else None,
+        )
+
+    def _on_debug_layer_gain(self, layer_id: str, gain: float) -> None:
+        self.director.set_debug_layer_gain(layer_id, gain)
+
     def _on_probes_enabled_changed(self, enabled: bool) -> None:
         self._probes_enabled = bool(enabled)
         self._persist_user_state()
@@ -548,7 +575,11 @@ class AdaptiveSoundscapeApp:
         self.window.set_status_message("Focus data deleted.")
 
     def _compute_muffling(self, focus_score: float) -> float:
-        base = max(0.0, min(1.0, (1.0 - focus_score) * self._muffling_strength))
+        # 3× stronger muffling response vs. the original (1−focus)×strength curve.
+        base = max(
+            0.0,
+            min(1.0, (1.0 - focus_score) * self._muffling_strength * 3.0),
+        )
         override = self.pomodoro.muffling_override()
         if override is not None:
             return max(base, override)
@@ -615,7 +646,16 @@ class AdaptiveSoundscapeApp:
         else:
             self.focus_index.set_calibration_mode(False)
 
-        if self.settings.focus_index.enabled:
+        if self._debug_focus_override:
+            score = self._debug_focus_score
+            if score >= 0.82:
+                state = FocusState.DEEP_FOCUS
+            elif score >= 0.45:
+                state = FocusState.CALM_PRODUCTIVITY
+            else:
+                state = FocusState.MILD_DISTRACTION
+            estimate = FocusEstimate(focus_score=score, state=state, raw_score=score)
+        elif self.settings.focus_index.enabled:
             estimate = self.focus_index.estimate_for_app(
                 snapshot, ctx, interval_s=interval
             )
@@ -644,7 +684,10 @@ class AdaptiveSoundscapeApp:
             self._apply_audio(decision)
         elif self._audio_running:
             # Intensity adapts continuously inside the active song.
-            self.director.update_intensity(estimate.focus_score)
+            if self._debug_focus_override:
+                self.director.force_intensity(estimate.focus_score)
+            else:
+                self.director.update_intensity(estimate.focus_score)
             self.director.set_parameters(params)
 
         # Periodic retention purge (cheap; once per ~hour of ticks).

@@ -18,6 +18,28 @@ DEFAULT_MODEL = "htdemucs"
 SUPPORTED_MODELS = ("htdemucs", "htdemucs_ft", "mdx_extra")
 
 
+def _resolve_torch_device() -> str:
+    """Prefer CUDA; honor DEMUCS_DEVICE=cuda|cpu|auto."""
+    import torch
+
+    requested = os.environ.get("DEMUCS_DEVICE", "auto").strip().lower() or "auto"
+    cuda_ok = bool(torch.cuda.is_available())
+    if requested in {"cuda", "gpu"}:
+        if not cuda_ok:
+            raise RuntimeError(
+                "DEMUCS_DEVICE=cuda but CUDA is unavailable. "
+                f"torch={getattr(torch, '__version__', '?')} at "
+                f"{getattr(torch, '__file__', '?')}. "
+                "Install a CUDA wheel into the conda env and start with "
+                "PYTHONNOUSERSITE=1 so a CPU torch from user site-packages "
+                "cannot shadow it."
+            )
+        return "cuda"
+    if requested == "cpu":
+        return "cpu"
+    return "cuda" if cuda_ok else "cpu"
+
+
 class DemucsEngine:
     def __init__(self, model: str = DEFAULT_MODEL) -> None:
         self.model = model if model in SUPPORTED_MODELS else DEFAULT_MODEL
@@ -42,13 +64,20 @@ class DemucsEngine:
         import torch
         from demucs.api import Separator
 
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        logger.info("Loading Demucs %s on %s …", self.model, self.device)
+        self.device = _resolve_torch_device()
+        logger.info(
+            "Loading Demucs %s on %s (torch=%s) …",
+            self.model,
+            self.device,
+            getattr(torch, "__version__", "?"),
+        )
+        if self.device.startswith("cuda"):
+            logger.info("CUDA device: %s", torch.cuda.get_device_name(0))
         self._separator = Separator(
             model=self.model,
             device=self.device,
         )
-        logger.info("Demucs ready")
+        logger.info("Demucs ready on %s", self.device)
 
     def separate(
         self,

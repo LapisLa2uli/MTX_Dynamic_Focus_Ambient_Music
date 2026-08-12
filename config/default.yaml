@@ -20,7 +20,7 @@ transition:
 
 cognitive:
   sensitivity: 1.0
-  focus_smoothing: 0.85
+  focus_smoothing: 0.55
 
 focus_index:
   enabled: true
@@ -32,6 +32,9 @@ focus_index:
   probe_ttl_minutes: 45
   retention_days: 7
   aligned_switch_penalty: 0.2
+  recency_tau_seconds: 90
+  pattern_gate_low: 50
+  pattern_assist_max: 12
   db_path: config/focus_index.sqlite
 
 muffling:
@@ -59,7 +62,7 @@ audio:
 
 adaptive_music:
   enabled: true
-  intensity_smoothing: 0.70
+  intensity_smoothing: 0.45
   enter_focus: 0.40
   enter_deep_focus: 0.70
   leave_deep_focus: 0.60
@@ -78,7 +81,10 @@ generative_layers:
   enabled: true
   api_base_url: "http://127.0.0.1:7862"
   model_size: small
-  timeout_seconds: 180
+  timeout_seconds: 600
+  conda_env: musicgen
+  auto_start_api: true
+  auto_on_upload: true
   output_layers:
     - texture
     - melody_b
@@ -89,3 +95,10 @@ stem_separation:
   model: htdemucs
   timeout_seconds: 600
   auto_on_upload: true
+  # Prefer a dedicated "demucs" env; app falls back to "musicgen" if missing.
+  conda_env: musicgen
+  auto_start_api: true
+
+sidecar_apis:
+  startup_timeout_seconds: 300
+  stop_when_done: true

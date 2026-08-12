@@ -36,7 +36,7 @@ class TransitionConfig(BaseModel):
 
 class CognitiveConfig(BaseModel):
     sensitivity: float = 1.0
-    focus_smoothing: float = 0.85
+    focus_smoothing: float = 0.55
 
 
 class FocusIndexConfigModel(BaseModel):
@@ -49,6 +49,9 @@ class FocusIndexConfigModel(BaseModel):
     probe_ttl_minutes: float = 45.0
     retention_days: int = 7
     aligned_switch_penalty: float = 0.2
+    recency_tau_seconds: float = 90.0
+    pattern_gate_low: float = 50.0
+    pattern_assist_max: float = 12.0
     db_path: str = "config/focus_index.sqlite"
 
 
@@ -80,7 +83,7 @@ class AudioConfig(BaseModel):
 
 class AdaptiveMusicConfigModel(BaseModel):
     enabled: bool = True
-    intensity_smoothing: float = 0.70
+    intensity_smoothing: float = 0.45
     enter_focus: float = 0.40
     enter_deep_focus: float = 0.70
     leave_deep_focus: float = 0.60
@@ -99,8 +102,11 @@ class GenerativeLayersConfig(BaseModel):
     enabled: bool = True
     api_base_url: str = "http://127.0.0.1:7862"
     model_size: str = "small"
-    timeout_seconds: float = 180.0
+    timeout_seconds: float = 600.0
     output_layers: list[str] = Field(default_factory=lambda: ["texture", "melody_b"])
+    conda_env: str = "musicgen"
+    auto_start_api: bool = True
+    auto_on_upload: bool = True
 
 
 class StemSeparationConfig(BaseModel):
@@ -109,6 +115,14 @@ class StemSeparationConfig(BaseModel):
     model: str = "htdemucs"
     timeout_seconds: float = 600.0
     auto_on_upload: bool = True
+    # Dedicated "demucs" env is fine; lifecycle also falls back to "musicgen".
+    conda_env: str = "musicgen"
+    auto_start_api: bool = True
+
+
+class SidecarApisConfig(BaseModel):
+    startup_timeout_seconds: float = 300.0
+    stop_when_done: bool = True
 
 
 class Settings(BaseSettings):
@@ -132,6 +146,7 @@ class Settings(BaseSettings):
     stem_separation: StemSeparationConfig = Field(
         default_factory=StemSeparationConfig
     )
+    sidecar_apis: SidecarApisConfig = Field(default_factory=SidecarApisConfig)
 
 
 def _project_root() -> Path:

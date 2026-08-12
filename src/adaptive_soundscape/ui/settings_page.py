@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from adaptive_soundscape.audio.layer_mix import LAYER_IDS
 from adaptive_soundscape.core.events import WorkContext
 
 DESCRIPTION_TEXT = (
@@ -406,10 +407,22 @@ class SettingsPage(QWidget):
     probe_requested = pyqtSignal()
     export_focus_data_requested = pyqtSignal()
     delete_focus_data_requested = pyqtSignal()
+    debug_focus_override_changed = pyqtSignal(bool, float)  # enabled, score 0–1
+    debug_layer_override_changed = pyqtSignal(bool)
+    debug_layer_gain_changed = pyqtSignal(str, float)  # layer_id, gain 0–1
 
     DEFAULT_WAVEFORM_SMOOTHNESS = 0.35
     DEFAULT_AURORA_BRIGHTNESS_GAIN = 1.5
     DEFAULT_MUFFLING_STRENGTH = 0.65
+    LAYER_LABELS: dict[str, str] = {
+        "pad": "Pad",
+        "harmony": "Harmony",
+        "melody_a": "Melody A",
+        "rhythm": "Rhythm",
+        "melody_b": "Melody B",
+        "texture": "Texture",
+        "recovery": "Recovery",
+    }
 
     def __init__(
         self,
@@ -500,7 +513,8 @@ class SettingsPage(QWidget):
             "{:d}%",
         )
         muffle_hint = QLabel(
-            "How strongly low focus muffles music (low-pass). Breaks use a stronger muffle."
+            "How strongly low focus muffles music (low-pass). Effect is amplified (~3×); "
+            "breaks use a stronger muffle."
         )
         muffle_hint.setObjectName("hintLabel")
         muffle_hint.setWordWrap(True)
@@ -539,6 +553,10 @@ class SettingsPage(QWidget):
         self._color_widgets: dict[str, list[QWidget]] = {}
         for profile_id in STATUS_DISPLAY_NAMES:
             self._build_color_row(content, profile_id)
+
+        # -- Section: Debug --
+        content.addWidget(self._section_label("Debug"))
+        self._build_debug_section(content)
 
         scroll.setWidget(scroll_content)
         outer.addWidget(scroll, stretch=1)
@@ -639,6 +657,143 @@ class SettingsPage(QWidget):
 
         container.addLayout(row)
         return slider, value_label
+
+    def _build_debug_section(self, container: QVBoxLayout) -> None:
+        self._debug_focus_enabled = False
+        self._debug_layer_enabled = False
+        self._debug_focus_score = 0.6
+        self._debug_layer_gains = {lid: 0.7 for lid in LAYER_IDS}
+        self._layer_sliders: dict[str, QSlider] = {}
+        self._layer_value_labels: dict[str, QLabel] = {}
+
+        # Manual concentration override
+        focus_row = QHBoxLayout()
+        focus_row.setSpacing(12)
+        focus_label = QLabel("Manual Concentration")
+        focus_label.setObjectName("settingLabel")
+        focus_row.addWidget(focus_label)
+        self._debug_focus_toggle = QPushButton("OFF")
+        self._debug_focus_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._debug_focus_toggle.setFixedWidth(64)
+        self._debug_focus_toggle.clicked.connect(self._on_debug_focus_toggled)
+        focus_row.addWidget(self._debug_focus_toggle)
+        focus_row.addStretch()
+        container.addLayout(focus_row)
+
+        self._debug_focus_slider, self._debug_focus_label = self._build_plain_slider_row(
+            container,
+            "Concentration Level",
+            int(round(self._debug_focus_score * 100)),
+            0,
+            100,
+            "{:d}%",
+            on_change=self._on_debug_focus_slider,
+        )
+        self._debug_focus_slider.setEnabled(False)
+        focus_hint = QLabel(
+            "When ON, overrides live focus scoring so you can audition music/UI response."
+        )
+        focus_hint.setObjectName("hintLabel")
+        focus_hint.setWordWrap(True)
+        container.addWidget(focus_hint)
+
+        # Manual layer volumes
+        layer_row = QHBoxLayout()
+        layer_row.setSpacing(12)
+        layer_label = QLabel("Manual Layer Volumes")
+        layer_label.setObjectName("settingLabel")
+        layer_row.addWidget(layer_label)
+        self._debug_layer_toggle = QPushButton("OFF")
+        self._debug_layer_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._debug_layer_toggle.setFixedWidth(64)
+        self._debug_layer_toggle.clicked.connect(self._on_debug_layer_toggled)
+        layer_row.addWidget(self._debug_layer_toggle)
+        layer_row.addStretch()
+        container.addLayout(layer_row)
+
+        layer_hint = QLabel(
+            "When ON, bypasses focus-based mix curves and sets each stem gain directly."
+        )
+        layer_hint.setObjectName("hintLabel")
+        layer_hint.setWordWrap(True)
+        container.addWidget(layer_hint)
+
+        for layer_id in LAYER_IDS:
+            title = self.LAYER_LABELS.get(layer_id, layer_id)
+            slider, value_label = self._build_plain_slider_row(
+                container,
+                title,
+                int(round(self._debug_layer_gains[layer_id] * 100)),
+                0,
+                100,
+                "{:d}%",
+                on_change=lambda val, lid=layer_id: self._on_debug_layer_slider(lid, val),
+            )
+            slider.setEnabled(False)
+            self._layer_sliders[layer_id] = slider
+            self._layer_value_labels[layer_id] = value_label
+
+    def _build_plain_slider_row(
+        self,
+        container: QVBoxLayout,
+        label_text: str,
+        initial: int,
+        lo: int,
+        hi: int,
+        fmt: str,
+        *,
+        on_change,
+    ) -> tuple[QSlider, QLabel]:
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        label = QLabel(label_text)
+        label.setObjectName("settingLabel")
+        row.addWidget(label)
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(lo, hi)
+        slider.setValue(initial)
+        slider.setMinimumWidth(180)
+        row.addWidget(slider, stretch=1)
+        value_label = QLabel(fmt.format(initial if fmt.endswith("%") else initial / 100))
+        value_label.setObjectName("valueLabel")
+        value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(value_label)
+
+        def _changed(val: int) -> None:
+            value_label.setText(fmt.format(val if fmt.endswith("%") else val / 100))
+            on_change(val)
+
+        slider.valueChanged.connect(_changed)
+        container.addLayout(row)
+        return slider, value_label
+
+    def _on_debug_focus_toggled(self) -> None:
+        self._debug_focus_enabled = not self._debug_focus_enabled
+        on = self._debug_focus_enabled
+        self._debug_focus_toggle.setText("ON" if on else "OFF")
+        self._debug_focus_toggle.setStyleSheet(TOGGLE_ON_STYLE if on else TOGGLE_OFF_STYLE)
+        self._debug_focus_slider.setEnabled(on)
+        self.debug_focus_override_changed.emit(on, self._debug_focus_score)
+
+    def _on_debug_focus_slider(self, val: int) -> None:
+        self._debug_focus_score = max(0.0, min(1.0, val / 100.0))
+        if self._debug_focus_enabled:
+            self.debug_focus_override_changed.emit(True, self._debug_focus_score)
+
+    def _on_debug_layer_toggled(self) -> None:
+        self._debug_layer_enabled = not self._debug_layer_enabled
+        on = self._debug_layer_enabled
+        self._debug_layer_toggle.setText("ON" if on else "OFF")
+        self._debug_layer_toggle.setStyleSheet(TOGGLE_ON_STYLE if on else TOGGLE_OFF_STYLE)
+        for slider in self._layer_sliders.values():
+            slider.setEnabled(on)
+        self.debug_layer_override_changed.emit(on)
+
+    def _on_debug_layer_slider(self, layer_id: str, val: int) -> None:
+        gain = max(0.0, min(1.0, val / 100.0))
+        self._debug_layer_gains[layer_id] = gain
+        if self._debug_layer_enabled:
+            self.debug_layer_gain_changed.emit(layer_id, gain)
 
     def _build_theme_row(self, container: QVBoxLayout, current_theme: str) -> None:
         row = QHBoxLayout()
@@ -826,6 +981,14 @@ class SettingsPage(QWidget):
             self._probes_toggle.setStyleSheet(
                 TOGGLE_ON_STYLE if self._probes_enabled else TOGGLE_OFF_STYLE
             )
+        for toggle_attr, enabled_attr in (
+            ("_debug_focus_toggle", "_debug_focus_enabled"),
+            ("_debug_layer_toggle", "_debug_layer_enabled"),
+        ):
+            toggle = getattr(self, toggle_attr, None)
+            if toggle is not None:
+                enabled = bool(getattr(self, enabled_attr, False))
+                toggle.setStyleSheet(TOGGLE_ON_STYLE if enabled else TOGGLE_OFF_STYLE)
         # Colour-picker buttons follow theme
         for _swatch, pick_btn in self._color_widgets.values():
             pick_btn.setStyleSheet(COLOR_PICKER_BTN_STYLE if dark else LIGHT_COLOR_PICKER_BTN_STYLE)
