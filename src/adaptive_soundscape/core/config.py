@@ -36,28 +36,37 @@ class TransitionConfig(BaseModel):
 
 class CognitiveConfig(BaseModel):
     sensitivity: float = 1.0
-    focus_smoothing: float = 0.55
+    focus_smoothing: float = 0.40
+    uncalibrated_focus_smoothing: float = 0.18
+    auto_distraction_enabled: bool = True
+    auto_distraction_enter: float = 0.38
+    auto_distraction_exit: float = 0.50
+    auto_distraction_dwell_seconds: float = 4.0
 
 
 class FocusIndexConfigModel(BaseModel):
     enabled: bool = True
-    window_seconds: float = 600.0
-    weight_alignment: float = 0.35
-    weight_switch: float = 0.25
+    window_seconds: float = 180.0
+    weight_alignment: float = 0.40
+    weight_switch: float = 0.30
     weight_idle: float = 0.20
-    weight_probe: float = 0.20
+    weight_probe: float = 0.10
     probe_ttl_minutes: float = 45.0
     retention_days: int = 7
     aligned_switch_penalty: float = 0.2
-    recency_tau_seconds: float = 90.0
-    pattern_gate_low: float = 50.0
-    pattern_assist_max: float = 12.0
+    recency_tau_seconds: float = 45.0
+    pattern_gate_low: float = 55.0
+    pattern_assist_max: float = 8.0
+    switch_rate_ref: float = 1.25
+    short_burst_s: float = 45.0
+    idle_threshold_s: float = 45.0
     db_path: str = "config/focus_index.sqlite"
 
 
 class MufflingConfig(BaseModel):
     strength: float = 0.65
     break_muffling: float = 0.85
+    curve_multiplier: float = 3.0
 
 
 class PomodoroConfig(BaseModel):
@@ -83,16 +92,16 @@ class AudioConfig(BaseModel):
 
 class AdaptiveMusicConfigModel(BaseModel):
     enabled: bool = True
-    intensity_smoothing: float = 0.45
+    intensity_smoothing: float = 0.35
     enter_focus: float = 0.40
     enter_deep_focus: float = 0.70
     leave_deep_focus: float = 0.60
     leave_focus: float = 0.30
     min_state_seconds: float = 3.0
-    recovery_seconds: float = 10.0
+    recovery_seconds: float = 8.0
     default_crossfade_ms: int = 1500
     master_volume: float = 0.75
-    gain_slew_seconds: float = 1.25
+    gain_slew_seconds: float = 1.0
     energy_limit: float = 2.4
     recovery_peak: float = 0.55
     layer_mix: dict[str, list[list[float]]] = Field(default_factory=dict)

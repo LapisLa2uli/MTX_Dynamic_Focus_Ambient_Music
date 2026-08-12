@@ -56,9 +56,17 @@ class FocusIndexService:
         self._force_aligned = False
         self._last_result: FocusIndexResult | None = None
         self._ema = 0.5
-        self.smoothing = 0.55
+        self.smoothing = 0.40
         # Snappier bar motion before the user has calibration patterns.
-        self.uncalibrated_smoothing = 0.30
+        self.uncalibrated_smoothing = 0.18
+        # Asymmetric fall/rise: drop focus faster than it recovers.
+        self.fall_smoothing_calibrated = 0.22
+        self.fall_smoothing_uncalibrated = 0.10
+        self.sensitivity = 1.0
+
+    def set_sensitivity(self, value: float) -> None:
+        """Map Settings sensitivity (0.2–2.0) onto FLI aggressiveness."""
+        self.sensitivity = max(0.2, min(2.0, float(value)))
 
     def set_task_profile(self, task_profile: str) -> None:
         self.bridge.set_task_profile(task_profile)
@@ -161,10 +169,29 @@ class FocusIndexService:
     ) -> FocusEstimate:
         """Adapter: ingest + score → FocusEstimate for MusicDirector path."""
         self.ingest_tick(snapshot, context, interval_s=interval_s)
-        result = self.score_current_window(persist=True)
+        # Temporarily scale switch/recency by sensitivity for this score pass.
+        cfg = self.config
+        base_switch = cfg.switch_rate_ref
+        base_tau = cfg.recency_tau_seconds
+        sens = max(0.2, float(self.sensitivity))
+        cfg.switch_rate_ref = max(0.4, base_switch / sens)
+        cfg.recency_tau_seconds = max(20.0, base_tau / sens)
+        try:
+            result = self.score_current_window(persist=True)
+        finally:
+            cfg.switch_rate_ref = base_switch
+            cfg.recency_tau_seconds = base_tau
+
         raw = result.as_unit_score()
         calibrated = bool(result.extras.get("calibrated"))
-        alpha = self.smoothing if calibrated else self.uncalibrated_smoothing
+        if raw < self._ema:
+            alpha = (
+                self.fall_smoothing_calibrated
+                if calibrated
+                else self.fall_smoothing_uncalibrated
+            )
+        else:
+            alpha = self.smoothing if calibrated else self.uncalibrated_smoothing
         alpha = max(0.0, min(0.99, float(alpha)))
         self._ema = alpha * self._ema + (1.0 - alpha) * raw
         score = max(0.0, min(1.0, self._ema))

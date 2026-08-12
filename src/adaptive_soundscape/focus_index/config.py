@@ -14,17 +14,17 @@ def default_db_path() -> Path:
 class FocusIndexConfig:
     """Tunable FLI weights, thresholds, and retention."""
 
-    weight_alignment: float = 0.35
-    weight_switch: float = 0.25
+    weight_alignment: float = 0.40
+    weight_switch: float = 0.30
     weight_idle: float = 0.20
-    weight_probe: float = 0.20
+    weight_probe: float = 0.10
 
-    window_seconds: float = 600.0
+    window_seconds: float = 180.0
     aligned_switch_penalty: float = 0.2
-    switch_rate_ref: float = 2.0  # switches/active-minute → S=0
+    switch_rate_ref: float = 1.25  # switches/active-minute → S=0
 
-    idle_threshold_s: float = 60.0
-    short_burst_s: float = 120.0
+    idle_threshold_s: float = 45.0
+    short_burst_s: float = 45.0
     low_active_uncertain_s: float = 60.0
 
     probe_ttl_minutes: float = 45.0
@@ -38,10 +38,10 @@ class FocusIndexConfig:
     band_high: float = 80.0
 
     # Recency decay for live scoring (seconds). Smaller → snappier distraction response.
-    recency_tau_seconds: float = 90.0
+    recency_tau_seconds: float = 45.0
     # Pattern may only assist when measured ≥ gate; lift capped at assist_max points.
-    pattern_gate_low: float = 50.0
-    pattern_assist_max: float = 12.0
+    pattern_gate_low: float = 55.0
+    pattern_assist_max: float = 8.0
 
     db_path: Path = field(default_factory=default_db_path)
 

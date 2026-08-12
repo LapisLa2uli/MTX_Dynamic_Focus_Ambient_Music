@@ -147,7 +147,7 @@ Music adapts in two nested levels:
 2. **Default (layered):** compatible stem loops (`pad`, `harmony`, `melody_a`, `rhythm`, optional `melody_b` / `texture` / `recovery`) play together. `MusicDirector` maps `focus_score` → **per-layer volumes** (with slew + energy limiting).
 3. **Fallback (discrete):** if a song has fewer than two base layers, the older calm / focus / deep_focus **file switching** path is used.
 
-The authoritative concentration signal is the **Focus Likelihood Index (FLI)** mapped to `focus_score` ∈ `[0, 1]` (`focus_index = max(measured_weighted_sum, calibration_pattern_similarity)`). See [`src/adaptive_soundscape/focus_index/README.md`](src/adaptive_soundscape/focus_index/README.md). UI Music State labels still use hysteresis bands; in layered mode those labels do not swap whole files. Low focus also drives optional **music muffling** (low-pass) scaled by Settings → Muffling Strength.
+The authoritative concentration signal is the **Focus Likelihood Index (FLI)** mapped to `focus_score` ∈ `[0, 1]`. Uncalibrated sessions use the default **A/S/I** weighted metric only; after calibration, probe (P) and gated pattern assist apply. Focus falls faster than it rises (asymmetric EMA). When smoothed focus stays below `cognitive.auto_distraction_enter` for a few seconds, the app switches the **UI/music** context to Distraction/recovery (classification for scoring still uses the real app category). See [`src/adaptive_soundscape/focus_index/README.md`](src/adaptive_soundscape/focus_index/README.md). Low focus also drives **music muffling** (low-pass) scaled by Settings → Muffling Strength × `muffling.curve_multiplier`.
 
 ### Thresholds & mix (`config/default.yaml` → `adaptive_music`)
 
@@ -238,10 +238,21 @@ Or use **Manage Albums → Generate AI Layers**. Config: `generative_layers` in 
 
 ### UI controls
 
-- **Start Audio** — enables adaptive playback.
+- **Start Audio** — glass EQ-ring on Home (scales with window; capped on fullscreen so session buttons stay visible).
 - **Music State** — Calm / Focus / Deep Focus (+ mode, song, top layer gains).
-- **Music volume** / **Mute**.
-- **Manage Albums** — stem layer or discrete intensity upload; auto Demucs on new full-mix songs; Generate AI layers.
+- **Pomodoro / Calibrate** — home session chips (flexible width).
+- **Upload** — SWAP a mix into a scenario album; auto Demucs + optional MusicGen layers.
+- **Settings → Debug** — manual concentration override; manual layer volumes (sliders appear only when enabled).
+- **Manage Albums** — advanced stem / AI controls.
+
+### UI debug harness
+
+Drive the real window (navigation, debug sliders, SWAP, Demucs, MusicGen) without clicking by hand:
+
+```powershell
+conda activate MTX
+python scripts/ui_debug_essential.py
+```
 
 ### Generate placeholder tones (optional)
 

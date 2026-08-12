@@ -96,11 +96,18 @@ class AdaptiveSoundscapeApp:
                 recency_tau_seconds=fli_cfg.recency_tau_seconds,
                 pattern_gate_low=fli_cfg.pattern_gate_low,
                 pattern_assist_max=fli_cfg.pattern_assist_max,
+                switch_rate_ref=getattr(fli_cfg, "switch_rate_ref", 1.25),
+                short_burst_s=getattr(fli_cfg, "short_burst_s", 45.0),
+                idle_threshold_s=getattr(fli_cfg, "idle_threshold_s", 45.0),
                 db_path=db_path,
             ),
             db_path=db_path,
         )
         self.focus_index.smoothing = self.settings.cognitive.focus_smoothing
+        self.focus_index.uncalibrated_smoothing = getattr(
+            self.settings.cognitive, "uncalibrated_focus_smoothing", 0.18
+        )
+        self.focus_index.set_sensitivity(self.settings.cognitive.sensitivity)
         self.pomodoro = PomodoroController(
             work_minutes=self.settings.pomodoro.work_minutes,
             break_minutes=self.settings.pomodoro.break_minutes,
@@ -109,10 +116,16 @@ class AdaptiveSoundscapeApp:
         )
         self.calibration = CalibrationController()
         self._muffling_strength = float(self.settings.muffling.strength)
+        self._muffling_curve = float(
+            getattr(self.settings.muffling, "curve_multiplier", 3.0)
+        )
         self._probes_enabled = True
         self._debug_focus_override = False
         self._debug_focus_score = 0.6
         self._debug_layer_override = False
+        self._classified_context = WorkContext.UNKNOWN
+        self._auto_distract_active = False
+        self._auto_distract_since = 0.0
         self.transition = TransitionController(
             deep_focus_crossfade_seconds=self.settings.transition.deep_focus_crossfade_seconds,
             distraction_recovery_seconds=self.settings.transition.distraction_recovery_seconds,
@@ -484,12 +497,84 @@ class AdaptiveSoundscapeApp:
 
     def _on_sensitivity(self, value: float) -> None:
         self.estimator.sensitivity = value
+        self.settings.cognitive.sensitivity = float(value)
         self.focus_index.smoothing = self.settings.cognitive.focus_smoothing
+        self.focus_index.uncalibrated_smoothing = getattr(
+            self.settings.cognitive, "uncalibrated_focus_smoothing", 0.18
+        )
+        self.focus_index.set_sensitivity(value)
 
     def _on_muffling_strength_changed(self, value: float) -> None:
         self._muffling_strength = max(0.0, min(1.0, float(value)))
         self.settings.muffling.strength = self._muffling_strength
         self._persist_user_state()
+
+    def _compute_muffling(self, focus_score: float) -> float:
+        curve = max(1.0, float(self._muffling_curve))
+        base = max(
+            0.0,
+            min(1.0, (1.0 - focus_score) * self._muffling_strength * curve),
+        )
+        override = self.pomodoro.muffling_override()
+        if override is not None:
+            return max(base, override)
+        return base
+
+    def _update_auto_distraction(
+        self, classified_ctx: WorkContext, focus_score: float
+    ) -> WorkContext:
+        """Override display/audio context to DISTRACTION when focus stays low.
+
+        Classification for FLI ingest still uses ``classified_ctx``; only the
+        effective UI/music context is overridden (avoids feedback loops).
+        """
+        cog = self.settings.cognitive
+        if not getattr(cog, "auto_distraction_enabled", True):
+            self._auto_distract_active = False
+            return classified_ctx
+        if self._manual_override:
+            self._auto_distract_active = False
+            return classified_ctx
+        if self.calibration.force_aligned or self.pomodoro.in_session_calibration:
+            self._auto_distract_active = False
+            return classified_ctx
+
+        import time as _time
+
+        now = _time.monotonic()
+        enter = float(getattr(cog, "auto_distraction_enter", 0.38))
+        exit_ = float(getattr(cog, "auto_distraction_exit", 0.50))
+        dwell = float(getattr(cog, "auto_distraction_dwell_seconds", 4.0))
+
+        if self._auto_distract_active:
+            if focus_score >= exit_:
+                if dwell <= 0 or self._auto_distract_since <= 0:
+                    if dwell <= 0:
+                        self._auto_distract_active = False
+                        self._auto_distract_since = 0.0
+                    else:
+                        self._auto_distract_since = now
+                elif now - self._auto_distract_since >= dwell:
+                    self._auto_distract_active = False
+                    self._auto_distract_since = 0.0
+            else:
+                self._auto_distract_since = 0.0
+        else:
+            if focus_score <= enter:
+                if dwell <= 0:
+                    self._auto_distract_active = True
+                    self._auto_distract_since = 0.0
+                elif self._auto_distract_since <= 0:
+                    self._auto_distract_since = now
+                elif now - self._auto_distract_since >= dwell:
+                    self._auto_distract_active = True
+                    self._auto_distract_since = 0.0
+            else:
+                self._auto_distract_since = 0.0
+
+        if self._auto_distract_active:
+            return WorkContext.DISTRACTION
+        return classified_ctx
 
     def _on_debug_focus_override(self, enabled: bool, score: float) -> None:
         self._debug_focus_override = bool(enabled)
@@ -586,17 +671,6 @@ class AdaptiveSoundscapeApp:
         self.focus_index.delete_all_data()
         self.window.set_status_message("Focus data deleted.")
 
-    def _compute_muffling(self, focus_score: float) -> float:
-        # 3× stronger muffling response vs. the original (1−focus)×strength curve.
-        base = max(
-            0.0,
-            min(1.0, (1.0 - focus_score) * self._muffling_strength * 3.0),
-        )
-        override = self.pomodoro.muffling_override()
-        if override is not None:
-            return max(base, override)
-        return base
-
     def _apply_muffling_to_params(self, params, focus_score: float):
         return params.with_muffling(self._compute_muffling(focus_score))
 
@@ -624,17 +698,14 @@ class AdaptiveSoundscapeApp:
             inferer=self.inferer,
         )
         if self._manual_override:
-            ctx = self.window.manual_context
+            classified = self.window.manual_context
             confidence = 1.0
         else:
-            ctx = self.persistence.update(resolved.context, resolved.confidence)
+            classified = self.persistence.update(resolved.context, resolved.confidence)
             confidence = resolved.confidence
             self._maybe_prompt_misc(resolved)
             self._update_classify_button(resolved)
-
-        if ctx != self._current_context:
-            self.bus.publish(ContextChanged(self._current_context, ctx, confidence))
-            self._current_context = ctx
+        self._classified_context = classified
 
         # Pomodoro / calibration bookkeeping before scoring.
         pomo = self.pomodoro.tick()
@@ -644,7 +715,7 @@ class AdaptiveSoundscapeApp:
             scope = "session" if kind and kind.value == "session" else "dedicated"
             try:
                 self.focus_index.save_calibration_pattern(
-                    task_profile=calib_state.task_profile or ctx.value,
+                    task_profile=calib_state.task_profile or classified.value,
                     scope=scope,
                     window_seconds=max(60.0, calib_state.duration_minutes * 60.0),
                 )
@@ -658,6 +729,7 @@ class AdaptiveSoundscapeApp:
         else:
             self.focus_index.set_calibration_mode(False)
 
+        # Score using the classified (real) context — not the auto-distract override.
         if self._debug_focus_override:
             score = self._debug_focus_score
             if score >= 0.82:
@@ -669,7 +741,7 @@ class AdaptiveSoundscapeApp:
             estimate = FocusEstimate(focus_score=score, state=state, raw_score=score)
         elif self.settings.focus_index.enabled:
             estimate = self.focus_index.estimate_for_app(
-                snapshot, ctx, interval_s=interval
+                snapshot, classified, interval_s=interval
             )
         else:
             from adaptive_soundscape.cognitive.signals import FocusSignals
@@ -680,7 +752,7 @@ class AdaptiveSoundscapeApp:
                 switch_rate=metrics.switch_rate,
                 idle_ratio=metrics.idle_ratio,
                 cpu_load=metrics.cpu_load,
-                context=ctx,
+                context=classified,
                 context_confidence=confidence,
             )
             estimate = self.estimator.estimate(signals)
@@ -690,7 +762,21 @@ class AdaptiveSoundscapeApp:
         self._current_focus = estimate.state
         self._focus_score = estimate.focus_score
 
-        decision = self.transition.decide(ctx, estimate.state, estimate.focus_score)
+        # Low focus → auto DISTRACTION for UI/music only (hysteresis + dwell).
+        effective = self._update_auto_distraction(classified, estimate.focus_score)
+        if effective != self._current_context:
+            self.bus.publish(
+                ContextChanged(self._current_context, effective, confidence)
+            )
+            self._current_context = effective
+            if self._auto_distract_active and effective == WorkContext.DISTRACTION:
+                self.window.set_status_message(
+                    "Low focus — recovery soundscape (auto-distraction)."
+                )
+
+        decision = self.transition.decide(
+            effective, estimate.state, estimate.focus_score
+        )
         params = self._apply_muffling_to_params(decision.parameters, estimate.focus_score)
         if decision.should_transition and self._audio_running:
             self._apply_audio(decision)

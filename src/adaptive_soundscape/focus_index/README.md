@@ -56,6 +56,11 @@ When calibrated, pattern may gently assist a moderate/high measured score (gated
 it cannot floor focus while measured has collapsed). When uncalibrated, focus is
 measured A/S/I only.
 
+Live scoring uses a shorter window (~180s), stronger recency (~45s), and
+**asymmetric EMA** (falls faster than it rises). Settings → Concentration Threshold
+maps into FLI sensitivity (switch rate / recency). Sustained low focus can auto-switch
+the UI/music context to Distraction without rewriting classification events.
+
 Result payload includes `focus_source`: `measured` | `pattern_similarity` | `tie`.
 
 ## Events

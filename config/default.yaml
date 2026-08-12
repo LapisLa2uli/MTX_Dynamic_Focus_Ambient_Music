@@ -20,26 +20,35 @@ transition:
 
 cognitive:
   sensitivity: 1.0
-  focus_smoothing: 0.55
+  focus_smoothing: 0.40
+  uncalibrated_focus_smoothing: 0.18
+  auto_distraction_enabled: true
+  auto_distraction_enter: 0.38
+  auto_distraction_exit: 0.50
+  auto_distraction_dwell_seconds: 4.0
 
 focus_index:
   enabled: true
-  window_seconds: 600
-  weight_alignment: 0.35
-  weight_switch: 0.25
+  window_seconds: 180
+  weight_alignment: 0.40
+  weight_switch: 0.30
   weight_idle: 0.20
-  weight_probe: 0.20
+  weight_probe: 0.10
   probe_ttl_minutes: 45
   retention_days: 7
   aligned_switch_penalty: 0.2
-  recency_tau_seconds: 90
-  pattern_gate_low: 50
-  pattern_assist_max: 12
+  recency_tau_seconds: 45
+  pattern_gate_low: 55
+  pattern_assist_max: 8
+  switch_rate_ref: 1.25
+  short_burst_s: 45
+  idle_threshold_s: 45
   db_path: config/focus_index.sqlite
 
 muffling:
   strength: 0.65
   break_muffling: 0.85
+  curve_multiplier: 3.0
 
 pomodoro:
   work_minutes: 25
@@ -62,16 +71,16 @@ audio:
 
 adaptive_music:
   enabled: true
-  intensity_smoothing: 0.45
+  intensity_smoothing: 0.35
   enter_focus: 0.40
   enter_deep_focus: 0.70
   leave_deep_focus: 0.60
   leave_focus: 0.30
   min_state_seconds: 3.0
-  recovery_seconds: 10.0
+  recovery_seconds: 8.0
   default_crossfade_ms: 1500
   master_volume: 0.75
-  gain_slew_seconds: 1.25
+  gain_slew_seconds: 1.0
   energy_limit: 2.4
   recovery_peak: 0.55
   # Optional overrides: layer_id → [[score, gain], ...]

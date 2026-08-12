@@ -61,7 +61,7 @@ DEFAULT_ALIGNED: dict[str, set[AppCategory]] = {
         AppCategory.DOCUMENT,
         AppCategory.BROWSER_DOCS,
         AppCategory.DESIGN,
-        AppCategory.COMMUNICATION,
+        # COMMUNICATION excluded: chat often co-occurs with distraction.
     },
 }
 
