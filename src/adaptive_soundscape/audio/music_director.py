@@ -23,6 +23,7 @@ from adaptive_soundscape.audio.music_manifest import (
     nearest_available_intensity,
 )
 from adaptive_soundscape.audio.parameters import AudioParameters
+from adaptive_soundscape.audio.phrase_boundary import PhraseBoundaryDetector
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,18 @@ class TrackAudioBackend(Protocol):
         self,
         path: Path,
         duration_seconds: float,
+        params: AudioParameters | None = None,
+    ) -> None: ...
+
+    def playback_position(self) -> float | None: ...
+
+    def fade_out_and_switch(
+        self,
+        path: Path,
+        *,
+        wait_seconds: float,
+        fadeout_seconds: float = 3.0,
+        gap_seconds: float = 0.5,
         params: AudioParameters | None = None,
     ) -> None: ...
 
@@ -77,6 +90,12 @@ class AdaptiveMusicConfig:
     energy_limit: float = 2.4
     recovery_peak: float = 0.55
     layer_mix: dict[str, list[list[float]]] = field(default_factory=dict)
+    phrase_boundary_enabled: bool = True
+    phrase_boundary_threshold: float = 0.40
+    phrase_search_seconds: float = 10.0
+    phrase_fadeout_seconds: float = 3.0
+    phrase_gap_seconds: float = 0.5
+    fallback_crossfade_seconds: float = 3.0
 
 
 class MusicDirector:
@@ -120,6 +139,11 @@ class MusicDirector:
         self._muted = False
         self._volume = self.config.master_volume
         self._params = AudioParameters(0.5, 0.4, 0.55)
+        self._boundary = PhraseBoundaryDetector(
+            assets_dir,
+            threshold=self.config.phrase_boundary_threshold,
+            search_seconds=self.config.phrase_search_seconds,
+        )
 
     # --- public status ---
     @property
@@ -216,8 +240,10 @@ class MusicDirector:
         )
         self._song_dir = song
         self._last_track_by_state.clear()
+        # Keep _active_path: it still points at the currently playing file, so
+        # the (non-force) transition below can wait for a phrase boundary in
+        # the current track before fading to the new one.
         self._active_track_id = None
-        self._active_path = None
         self._recovery_until = 0.0
         self._was_deep = False
         if focus_score is not None:
@@ -230,9 +256,9 @@ class MusicDirector:
         self._resolve_playback_mode()
         if self._enabled:
             if self._playback_mode == "layered":
-                self._load_layered(force=True)
+                self._load_layered(force=False, phrase_switch=True)
             else:
-                self._transition_to(desired, force=True)
+                self._transition_to(desired, force=False)
 
     def update_intensity(self, focus_score: float) -> None:
         if not self.config.enabled:
@@ -318,7 +344,7 @@ class MusicDirector:
             self._playback_mode = "layered"
             self._layer_paths = manifest.playable_layer_paths(self._song_dir)
 
-    def _load_layered(self, *, force: bool) -> None:
+    def _load_layered(self, *, force: bool, phrase_switch: bool = False) -> None:
         if not self._layer_paths:
             self._resolve_playback_mode()
         if not self._layer_paths:
@@ -332,7 +358,50 @@ class MusicDirector:
                 crossfade_s = max(manifest.crossfade_ms, 50) / 1000.0
         if force:
             crossfade_s = min(crossfade_s, 0.35)
-        if self._enabled:
+
+        # Phrase-boundary switch: keep the current pack playing until the
+        # active state's phrase ends, then fade out + gap + load the new pack.
+        used_phrase = False
+        if (
+            phrase_switch
+            and not force
+            and self.config.phrase_boundary_enabled
+            and self._active_path is not None
+            and self._active_path.is_file()
+        ):
+            pos_getter = getattr(self.backend, "playback_position", None)
+            switch_fn = getattr(self.backend, "fade_out_and_switch_stems", None)
+            if callable(pos_getter) and callable(switch_fn):
+                try:
+                    pos_sec = pos_getter()
+                    if pos_sec is not None:
+                        boundary = self._boundary.search_boundary(
+                            self._active_path, pos_sec
+                        )
+                        if boundary is not None:
+                            wait_seconds = max(0.0, boundary - pos_sec)
+                            switch_fn(
+                                self._layer_paths,
+                                wait_seconds=wait_seconds,
+                                fadeout_seconds=self.config.phrase_fadeout_seconds,
+                                gap_seconds=self.config.phrase_gap_seconds,
+                            )
+                            used_phrase = True
+                except Exception:
+                    logger.exception(
+                        "MusicDirector: stem phrase-boundary switch failed"
+                    )
+        if self._enabled and not used_phrase:
+            # No sentence end within the look-ahead budget (10 s / 50
+            # detections): fall back to a 3 s crossfade, never an abrupt swap.
+            if (
+                phrase_switch
+                and not force
+                and self.config.phrase_boundary_enabled
+            ):
+                crossfade_s = max(
+                    crossfade_s, self.config.fallback_crossfade_seconds
+                )
             try:
                 self.backend.load_stem_pack(self._layer_paths, crossfade_s)
             except Exception:
@@ -342,7 +411,17 @@ class MusicDirector:
                 return
         self._apply_layered_gains()
         self._active_track_id = "+".join(sorted(self._layer_paths.keys()))
-        self._active_path = None
+        self._active_path = self._current_state_full_track()
+
+    def _current_state_full_track(self) -> Path | None:
+        """Single-file rendering of the active intensity, used as the phrase
+        analysis source while a layered pack is playing."""
+        if self._song_dir is None:
+            return None
+        playable = list_playable_tracks(self._song_dir, self._active_state)
+        if not playable:
+            return None
+        return playable[0][1]
 
     def _apply_layered_gains(self) -> None:
         recovery_active = (
@@ -438,23 +517,59 @@ class MusicDirector:
         if leaving_deep:
             self._was_deep = True
 
-        crossfade_s = self.config.default_crossfade_ms / 1000.0
-        if self._song_dir is not None:
-            manifest = load_manifest(self._song_dir)
-            if manifest is not None:
-                crossfade_s = max(manifest.crossfade_ms, 50) / 1000.0
-                if not force:
-                    t_src = manifest.transition_src(self._active_state, effective)
-                    if t_src:
-                        t_path = (self._song_dir / t_src).resolve()
-                        if t_path.is_file():
-                            logger.info(
-                                "MusicDirector: transition asset %s present; "
-                                "using crossfade into target loop",
-                                t_src,
-                            )
+        # --- phrase-boundary switching (real status changes only) ---
+        used_phrase = False
+        phrase_capable = (
+            self._enabled
+            and not force
+            and self.config.phrase_boundary_enabled
+            and self._active_path is not None
+            and self._active_path.is_file()
+        )
+        pos_getter = getattr(self.backend, "playback_position", None)
+        switch_fn = getattr(self.backend, "fade_out_and_switch", None)
+        if phrase_capable and callable(pos_getter) and callable(switch_fn):
+            try:
+                pos_sec = pos_getter()
+                if pos_sec is not None:
+                    boundary = self._boundary.search_boundary(self._active_path, pos_sec)
+                    if boundary is not None:
+                        wait_seconds = max(0.0, boundary - pos_sec)
+                        logger.info(
+                            "MusicDirector: phrase boundary at %.2fs → "
+                            "fadeout %.1fs + gap %.1fs, then %s",
+                            boundary,
+                            self.config.phrase_fadeout_seconds,
+                            self.config.phrase_gap_seconds,
+                            path.name,
+                        )
+                        switch_fn(
+                            path,
+                            wait_seconds=wait_seconds,
+                            fadeout_seconds=self.config.phrase_fadeout_seconds,
+                            gap_seconds=self.config.phrase_gap_seconds,
+                            params=self._params,
+                        )
+                        used_phrase = True
+                    else:
+                        logger.info(
+                            "MusicDirector: no phrase boundary within %.0fs → "
+                            "%.0fs crossfade",
+                            self.config.phrase_search_seconds,
+                            self.config.fallback_crossfade_seconds,
+                        )
+            except Exception:
+                logger.exception("MusicDirector: phrase boundary detection failed")
 
-        if self._enabled:
+        if self._enabled and not used_phrase:
+            if phrase_capable:
+                crossfade_s = max(self.config.fallback_crossfade_seconds, 0.1)
+            else:
+                crossfade_s = self.config.default_crossfade_ms / 1000.0
+                if self._song_dir is not None:
+                    manifest = load_manifest(self._song_dir)
+                    if manifest is not None:
+                        crossfade_s = max(manifest.crossfade_ms, 50) / 1000.0
             try:
                 self.backend.crossfade_to_track(
                     path, crossfade_s if not force else min(crossfade_s, 0.35), self._params
@@ -528,4 +643,20 @@ def config_from_settings(adaptive: Any) -> AdaptiveMusicConfig:
         energy_limit=float(getattr(adaptive, "energy_limit", 2.4)),
         recovery_peak=float(getattr(adaptive, "recovery_peak", 0.55)),
         layer_mix=layer_mix,
+        phrase_boundary_enabled=bool(
+            getattr(adaptive, "phrase_boundary_enabled", True)
+        ),
+        phrase_boundary_threshold=float(
+            getattr(adaptive, "phrase_boundary_threshold", 0.40)
+        ),
+        phrase_search_seconds=float(
+            getattr(adaptive, "phrase_search_seconds", 10.0)
+        ),
+        phrase_fadeout_seconds=float(
+            getattr(adaptive, "phrase_fadeout_seconds", 3.0)
+        ),
+        phrase_gap_seconds=float(getattr(adaptive, "phrase_gap_seconds", 0.5)),
+        fallback_crossfade_seconds=float(
+            getattr(adaptive, "fallback_crossfade_seconds", 3.0)
+        ),
     )

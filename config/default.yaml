@@ -73,6 +73,13 @@ adaptive_music:
   recovery_peak: 0.55
   # Optional overrides: layer_id → [[score, gain], ...]
   layer_mix: {}
+  # Phrase-boundary detection: p = 1/(1+exp(-(-1.058 - 0.425*z_vol + 0.290*z_pitch)))
+  phrase_boundary_enabled: true
+  phrase_boundary_threshold: 0.40
+  phrase_search_seconds: 10.0
+  phrase_fadeout_seconds: 3.0
+  phrase_gap_seconds: 0.5
+  fallback_crossfade_seconds: 3.0
 
 generative_layers:
   enabled: true

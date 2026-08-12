@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -32,6 +33,7 @@ from adaptive_soundscape.audio.music_manifest import (
     migrate_songs_to_layered_stubs,
 )
 from adaptive_soundscape.audio.musicgen_client import MusicGenClient
+from adaptive_soundscape.audio.phrase_boundary import precompute_song_features
 from adaptive_soundscape.core.config import load_settings
 from adaptive_soundscape.ui.album_manager import AlbumManagerDialog, _StemSeparateThread
 
@@ -470,6 +472,14 @@ class _ProfilePanel(QWidget):
             return
         song_dir = dest.parent.parent
         migrate_songs_to_layered_stubs(self._assets_dir)
+        # Precompute 0.2 s tick volume/pitch features in the background so the
+        # phrase-boundary detector can run for this song later.
+        threading.Thread(
+            target=precompute_song_features,
+            args=(song_dir,),
+            daemon=True,
+            name="phrase-feature-precompute",
+        ).start()
         self._upload_zone.clear_staged()
         self._swap_btn.setEnabled(False)
         self._swap_btn.setStyleSheet(SWAP_DISABLED)
