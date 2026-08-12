@@ -78,16 +78,16 @@ class TrackAudioBackend(Protocol):
 @dataclass
 class AdaptiveMusicConfig:
     enabled: bool = True
-    intensity_smoothing: float = 0.45
+    intensity_smoothing: float = 0.35
     enter_focus: float = 0.40
     enter_deep_focus: float = 0.70
     leave_deep_focus: float = 0.60
     leave_focus: float = 0.30
     min_state_seconds: float = 3.0
-    recovery_seconds: float = 10.0
+    recovery_seconds: float = 8.0
     default_crossfade_ms: int = 1500
     master_volume: float = 0.75
-    gain_slew_seconds: float = 1.25
+    gain_slew_seconds: float = 1.0
     energy_limit: float = 2.4
     recovery_peak: float = 0.55
     layer_mix: dict[str, list[list[float]]] = field(default_factory=dict)
@@ -673,16 +673,16 @@ def config_from_settings(adaptive: Any) -> AdaptiveMusicConfig:
         layer_mix = {}
     return AdaptiveMusicConfig(
         enabled=bool(getattr(adaptive, "enabled", True)),
-        intensity_smoothing=float(getattr(adaptive, "intensity_smoothing", 0.70)),
+        intensity_smoothing=float(getattr(adaptive, "intensity_smoothing", 0.35)),
         enter_focus=float(getattr(adaptive, "enter_focus", 0.40)),
         enter_deep_focus=float(getattr(adaptive, "enter_deep_focus", 0.70)),
         leave_deep_focus=float(getattr(adaptive, "leave_deep_focus", 0.60)),
         leave_focus=float(getattr(adaptive, "leave_focus", 0.30)),
         min_state_seconds=float(getattr(adaptive, "min_state_seconds", 3.0)),
-        recovery_seconds=float(getattr(adaptive, "recovery_seconds", 10.0)),
+        recovery_seconds=float(getattr(adaptive, "recovery_seconds", 8.0)),
         default_crossfade_ms=int(getattr(adaptive, "default_crossfade_ms", 1500)),
         master_volume=float(getattr(adaptive, "master_volume", 0.75)),
-        gain_slew_seconds=float(getattr(adaptive, "gain_slew_seconds", 1.25)),
+        gain_slew_seconds=float(getattr(adaptive, "gain_slew_seconds", 1.0)),
         energy_limit=float(getattr(adaptive, "energy_limit", 2.4)),
         recovery_peak=float(getattr(adaptive, "recovery_peak", 0.55)),
         layer_mix=layer_mix,

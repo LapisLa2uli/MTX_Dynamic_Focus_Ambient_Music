@@ -126,14 +126,40 @@ _STRINGS: dict[str, dict[str, str]] = {
     },
     "muffle_hint": {
         "en": (
-            "How strongly low focus muffles music (low-pass). Effect is amplified (~3×); "
-            "breaks use a stronger muffle."
+            "How strongly low focus muffles music (low-pass). Combined with muffling "
+            "aggressiveness below. Breaks use a stronger muffle."
         ),
-        "zh": "低专注度时对音乐的低通抑制强度（约 3 倍增强）。休息时会用更强的抑制。",
-        "hi": (
-            "कम फ़ोकस पर संगीत को कितनी तेज़ी से मफल किया जाए (लो-पास, ~3×)। "
-            "ब्रेक में अधिक मफलिंग होती है।"
+        "zh": "低专注度时对音乐的低通抑制强度（与下方侵略性相乘）。休息时会用更强的抑制。",
+        "hi": "कम फ़ोकस पर संगीत मफलिंग (लो-पास)। नीचे आक्रामकता से गुणा। ब्रेक में अधिक।",
+    },
+    "section_effects": {"en": "Effect response", "zh": "效果响应", "hi": "प्रभाव प्रतिक्रिया"},
+    "muffle_curve_label": {
+        "en": "Muffling aggressiveness",
+        "zh": "抑制侵略性",
+        "hi": "मफलिंग आक्रामकता",
+    },
+    "intensity_smooth_label": {
+        "en": "Music intensity lag",
+        "zh": "音乐强度滞后",
+        "hi": "संगीत तीव्रता विलंब",
+    },
+    "gain_slew_label": {
+        "en": "Layer blend time",
+        "zh": "层混音过渡时间",
+        "hi": "लेयर ब्लेंड समय",
+    },
+    "focus_smooth_label": {
+        "en": "Focus bar lag",
+        "zh": "专注条滞后",
+        "hi": "फ़ोकस बार विलंब",
+    },
+    "effects_hint": {
+        "en": (
+            "Lower lag/blend values respond faster. Muffling aggressiveness multiplies "
+            "the muffling strength curve (1×–5×)."
         ),
+        "zh": "滞后/过渡越小反应越快。抑制侵略性会放大抑制强度曲线（1×–5×）。",
+        "hi": "कम विलंब = तेज़ प्रतिक्रिया। मफलिंग आक्रामकता 1×–5× गुणक है।",
     },
     "section_cognitive": {"en": "Cognitive", "zh": "认知", "hi": "संज्ञानात्मक"},
     "threshold_label": {

@@ -23,21 +23,33 @@ class UiPreferences:
     # How strongly rising focus brightens the aurora lights (0–3).
     aurora_brightness_gain: float = 1.5
     muffling_strength: float = 0.65
+    muffling_curve: float = 3.0
+    intensity_smoothing: float | None = None
+    gain_slew_seconds: float | None = None
+    focus_smoothing: float | None = None
     probes_enabled: bool = True
     status_colors: dict[str, str] = field(default_factory=dict)
     language: str = "en"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "dark_mode": bool(self.dark_mode),
             "main_theme": str(self.main_theme),
             "waveform_smoothness": float(self.waveform_smoothness),
             "aurora_brightness_gain": float(self.aurora_brightness_gain),
             "muffling_strength": float(self.muffling_strength),
+            "muffling_curve": float(self.muffling_curve),
             "probes_enabled": bool(self.probes_enabled),
             "status_colors": dict(self.status_colors),
             "language": str(self.language),
         }
+        if self.intensity_smoothing is not None:
+            out["intensity_smoothing"] = float(self.intensity_smoothing)
+        if self.gain_slew_seconds is not None:
+            out["gain_slew_seconds"] = float(self.gain_slew_seconds)
+        if self.focus_smoothing is not None:
+            out["focus_smoothing"] = float(self.focus_smoothing)
+        return out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UiPreferences:
@@ -64,6 +76,34 @@ class UiPreferences:
             try:
                 prefs.muffling_strength = max(
                     0.0, min(1.0, float(data["muffling_strength"]))
+                )
+            except (TypeError, ValueError):
+                pass
+        if "muffling_curve" in data:
+            try:
+                prefs.muffling_curve = max(
+                    1.0, min(5.0, float(data["muffling_curve"]))
+                )
+            except (TypeError, ValueError):
+                pass
+        if "intensity_smoothing" in data:
+            try:
+                prefs.intensity_smoothing = max(
+                    0.05, min(0.90, float(data["intensity_smoothing"]))
+                )
+            except (TypeError, ValueError):
+                pass
+        if "gain_slew_seconds" in data:
+            try:
+                prefs.gain_slew_seconds = max(
+                    0.2, min(3.0, float(data["gain_slew_seconds"]))
+                )
+            except (TypeError, ValueError):
+                pass
+        if "focus_smoothing" in data:
+            try:
+                prefs.focus_smoothing = max(
+                    0.05, min(0.90, float(data["focus_smoothing"]))
                 )
             except (TypeError, ValueError):
                 pass

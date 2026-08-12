@@ -62,7 +62,7 @@ def default_layer_curves() -> dict[str, LayerCurve]:
 @dataclass
 class LayerMixConfig:
     curves: dict[str, LayerCurve] = field(default_factory=default_layer_curves)
-    gain_slew_seconds: float = 1.25
+    gain_slew_seconds: float = 1.0
     energy_limit: float = 2.4
     recovery_peak: float = 0.55
     recovery_seconds: float = 10.0

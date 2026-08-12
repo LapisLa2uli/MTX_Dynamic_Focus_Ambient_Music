@@ -242,6 +242,7 @@ Or use **Manage Albums → Generate AI Layers**. Config: `generative_layers` in 
 - **Music State** — Calm / Focus / Deep Focus (+ mode, song, top layer gains).
 - **Pomodoro / Calibrate** — home session chips (flexible width).
 - **Upload** — SWAP a mix into a scenario album; auto Demucs + optional MusicGen layers.
+- **Settings → Effect response** — muffling aggressiveness (1×–5×), music intensity lag, layer blend time, focus bar lag. Live-adjustable and saved to `config/user_ui_settings.json`.
 - **Settings → Debug** — manual concentration override; manual layer volumes (sliders appear only when enabled).
 - **Manage Albums** — advanced stem / AI controls.
 
@@ -252,6 +253,8 @@ Drive the real window (navigation, debug sliders, SWAP, Demucs, MusicGen) withou
 ```powershell
 conda activate MTX
 python scripts/ui_debug_essential.py
+python scripts/ui_debug_focus_distraction.py   # auto-distraction path
+python scripts/ui_debug_effects.py             # Effect response sliders
 ```
 
 ### Generate placeholder tones (optional)

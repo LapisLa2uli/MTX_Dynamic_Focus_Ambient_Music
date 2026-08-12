@@ -404,6 +404,10 @@ class SettingsPage(QWidget):
     categories_requested = pyqtSignal()
     status_colors_changed = pyqtSignal(dict)
     muffling_strength_changed = pyqtSignal(float)
+    muffling_curve_changed = pyqtSignal(float)
+    intensity_smoothing_changed = pyqtSignal(float)
+    gain_slew_changed = pyqtSignal(float)
+    focus_smoothing_changed = pyqtSignal(float)
     probes_enabled_changed = pyqtSignal(bool)
     probe_requested = pyqtSignal()
     export_focus_data_requested = pyqtSignal()
@@ -524,6 +528,46 @@ class SettingsPage(QWidget):
         muffle_hint.setWordWrap(True)
         content.addWidget(muffle_hint)
         self._trans.append(("muffle_hint", muffle_hint))
+
+        # Effect response (sensitivities)
+        content.addWidget(self._section_label("section_effects"))
+        self._muffle_curve_slider, self._muffle_curve_label = self._build_slider_row(
+            content,
+            "muffle_curve_label",
+            int(round(3.0 * 100)),
+            100,
+            500,
+            "{:.1f}×",
+        )
+        self._intensity_smooth_slider, self._intensity_smooth_label = self._build_slider_row(
+            content,
+            "intensity_smooth_label",
+            int(round(0.35 * 100)),
+            5,
+            90,
+            "{:.2f}",
+        )
+        self._gain_slew_slider, self._gain_slew_label = self._build_slider_row(
+            content,
+            "gain_slew_label",
+            int(round(1.0 * 100)),
+            20,
+            300,
+            "{:.1f}s",
+        )
+        self._focus_smooth_slider, self._focus_smooth_label = self._build_slider_row(
+            content,
+            "focus_smooth_label",
+            int(round(0.40 * 100)),
+            5,
+            90,
+            "{:.2f}",
+        )
+        effects_hint = QLabel(tr("effects_hint"))
+        effects_hint.setObjectName("hintLabel")
+        effects_hint.setWordWrap(True)
+        content.addWidget(effects_hint)
+        self._trans.append(("effects_hint", effects_hint))
 
         # -- Section: Cognitive --
         content.addWidget(self._section_label("section_cognitive"))
@@ -680,6 +724,14 @@ class SettingsPage(QWidget):
                 self.aurora_brightness_gain_changed.emit(val / 100.0)
             elif getattr(self, "_muffle_slider", None) is slider:
                 self.muffling_strength_changed.emit(val / 100.0)
+            elif getattr(self, "_muffle_curve_slider", None) is slider:
+                self.muffling_curve_changed.emit(val / 100.0)
+            elif getattr(self, "_intensity_smooth_slider", None) is slider:
+                self.intensity_smoothing_changed.emit(val / 100.0)
+            elif getattr(self, "_gain_slew_slider", None) is slider:
+                self.gain_slew_changed.emit(val / 100.0)
+            elif getattr(self, "_focus_smooth_slider", None) is slider:
+                self.focus_smoothing_changed.emit(val / 100.0)
 
         slider.valueChanged.connect(_on_change)
 
@@ -1065,6 +1117,34 @@ class SettingsPage(QWidget):
         self._muffle_slider.setValue(pct)
         self._muffle_slider.blockSignals(False)
         self._muffle_label.setText(f"{pct}%")
+
+    def set_muffling_curve(self, value: float) -> None:
+        scaled = int(round(max(1.0, min(5.0, value)) * 100))
+        self._muffle_curve_slider.blockSignals(True)
+        self._muffle_curve_slider.setValue(scaled)
+        self._muffle_curve_slider.blockSignals(False)
+        self._muffle_curve_label.setText(f"{scaled / 100:.1f}×")
+
+    def set_intensity_smoothing(self, value: float) -> None:
+        scaled = int(round(max(0.05, min(0.90, value)) * 100))
+        self._intensity_smooth_slider.blockSignals(True)
+        self._intensity_smooth_slider.setValue(scaled)
+        self._intensity_smooth_slider.blockSignals(False)
+        self._intensity_smooth_label.setText(f"{scaled / 100:.2f}")
+
+    def set_gain_slew(self, value: float) -> None:
+        scaled = int(round(max(0.2, min(3.0, value)) * 100))
+        self._gain_slew_slider.blockSignals(True)
+        self._gain_slew_slider.setValue(scaled)
+        self._gain_slew_slider.blockSignals(False)
+        self._gain_slew_label.setText(f"{scaled / 100:.1f}s")
+
+    def set_focus_smoothing(self, value: float) -> None:
+        scaled = int(round(max(0.05, min(0.90, value)) * 100))
+        self._focus_smooth_slider.blockSignals(True)
+        self._focus_smooth_slider.setValue(scaled)
+        self._focus_smooth_slider.blockSignals(False)
+        self._focus_smooth_label.setText(f"{scaled / 100:.2f}")
 
     def set_probes_enabled(self, enabled: bool) -> None:
         self._probes_enabled = bool(enabled)

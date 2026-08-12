@@ -209,6 +209,10 @@ class AdaptiveSoundscapeApp:
         sp.status_colors_changed.connect(self._on_status_colors_changed)
         sp.dark_mode_toggled.connect(self._on_dark_mode_changed)
         sp.muffling_strength_changed.connect(self._on_muffling_strength_changed)
+        sp.muffling_curve_changed.connect(self._on_muffling_curve_changed)
+        sp.intensity_smoothing_changed.connect(self._on_intensity_smoothing_changed)
+        sp.gain_slew_changed.connect(self._on_gain_slew_changed)
+        sp.focus_smoothing_changed.connect(self._on_focus_smoothing_changed)
         sp.probes_enabled_changed.connect(self._on_probes_enabled_changed)
         sp.probe_requested.connect(self._on_probe_requested)
         sp.export_focus_data_requested.connect(self._on_export_focus_data)
@@ -225,6 +229,21 @@ class AdaptiveSoundscapeApp:
         self._waveform_smoothness = float(self._ui_prefs.waveform_smoothness)
         self._aurora_brightness_gain = float(self._ui_prefs.aurora_brightness_gain)
         self._muffling_strength = float(self._ui_prefs.muffling_strength)
+        self._muffling_curve = float(self._ui_prefs.muffling_curve)
+        self.settings.muffling.curve_multiplier = self._muffling_curve
+        if self._ui_prefs.intensity_smoothing is not None:
+            alpha = float(self._ui_prefs.intensity_smoothing)
+            self.settings.adaptive_music.intensity_smoothing = alpha
+            self.director.config.intensity_smoothing = alpha
+        if self._ui_prefs.gain_slew_seconds is not None:
+            slew = float(self._ui_prefs.gain_slew_seconds)
+            self.settings.adaptive_music.gain_slew_seconds = slew
+            self.director.config.gain_slew_seconds = slew
+            self.director._layer_mix.gain_slew_seconds = slew
+        if self._ui_prefs.focus_smoothing is not None:
+            fs = float(self._ui_prefs.focus_smoothing)
+            self.settings.cognitive.focus_smoothing = fs
+            self.focus_index.smoothing = fs
         self._probes_enabled = bool(self._ui_prefs.probes_enabled)
         self._language = self._ui_prefs.language or i18n_get_language()
         self._apply_ui_preferences()
@@ -274,6 +293,14 @@ class AdaptiveSoundscapeApp:
                 waveform_smoothness=self._waveform_smoothness,
                 aurora_brightness_gain=self._aurora_brightness_gain,
                 muffling_strength=self._muffling_strength,
+                muffling_curve=self._muffling_curve,
+                intensity_smoothing=float(
+                    self.settings.adaptive_music.intensity_smoothing
+                ),
+                gain_slew_seconds=float(
+                    self.settings.adaptive_music.gain_slew_seconds
+                ),
+                focus_smoothing=float(self.settings.cognitive.focus_smoothing),
                 probes_enabled=self._probes_enabled,
                 status_colors=dict(self._status_colors),
                 language=self._language,
@@ -292,6 +319,10 @@ class AdaptiveSoundscapeApp:
         sp.set_aurora_brightness_gain(self._aurora_brightness_gain)
         self.window.home_page.set_aurora_brightness_gain(self._aurora_brightness_gain)
         sp.set_muffling_strength(self._muffling_strength)
+        sp.set_muffling_curve(self._muffling_curve)
+        sp.set_intensity_smoothing(self.settings.adaptive_music.intensity_smoothing)
+        sp.set_gain_slew(self.settings.adaptive_music.gain_slew_seconds)
+        sp.set_focus_smoothing(self.settings.cognitive.focus_smoothing)
         sp.set_probes_enabled(self._probes_enabled)
         self.window._set_dark_mode(bool(self._ui_prefs.dark_mode))
         sp.set_dark_mode(bool(self._ui_prefs.dark_mode))
@@ -507,6 +538,30 @@ class AdaptiveSoundscapeApp:
     def _on_muffling_strength_changed(self, value: float) -> None:
         self._muffling_strength = max(0.0, min(1.0, float(value)))
         self.settings.muffling.strength = self._muffling_strength
+        self._persist_user_state()
+
+    def _on_muffling_curve_changed(self, value: float) -> None:
+        self._muffling_curve = max(1.0, min(5.0, float(value)))
+        self.settings.muffling.curve_multiplier = self._muffling_curve
+        self._persist_user_state()
+
+    def _on_intensity_smoothing_changed(self, value: float) -> None:
+        alpha = max(0.05, min(0.90, float(value)))
+        self.settings.adaptive_music.intensity_smoothing = alpha
+        self.director.config.intensity_smoothing = alpha
+        self._persist_user_state()
+
+    def _on_gain_slew_changed(self, value: float) -> None:
+        seconds = max(0.2, min(3.0, float(value)))
+        self.settings.adaptive_music.gain_slew_seconds = seconds
+        self.director.config.gain_slew_seconds = seconds
+        self.director._layer_mix.gain_slew_seconds = seconds
+        self._persist_user_state()
+
+    def _on_focus_smoothing_changed(self, value: float) -> None:
+        alpha = max(0.05, min(0.90, float(value)))
+        self.settings.cognitive.focus_smoothing = alpha
+        self.focus_index.smoothing = alpha
         self._persist_user_state()
 
     def _compute_muffling(self, focus_score: float) -> float:
