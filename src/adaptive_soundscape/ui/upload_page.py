@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -21,9 +21,13 @@ from PyQt6.QtWidgets import (
 from adaptive_soundscape.audio.album import (
     PROFILE_IDS,
     add_track,
-    display_name_for_profile,
     list_songs,
     list_tracks,
+)
+from adaptive_soundscape.core.i18n import (
+    set_language as i18n_set_language,
+    status_label as i18n_status_label,
+    tr,
 )
 from adaptive_soundscape.audio.demucs_client import DemucsClient
 from adaptive_soundscape.audio.generate_layers import generate_and_install_layer
@@ -36,17 +40,7 @@ from adaptive_soundscape.audio.musicgen_client import MusicGenClient
 from adaptive_soundscape.audio.phrase_boundary import precompute_song_features
 from adaptive_soundscape.core.config import load_settings
 from adaptive_soundscape.ui.album_manager import AlbumManagerDialog, _StemSeparateThread
-
-# Profile → icon mapping for tab buttons
-PROFILE_ICONS: dict[str, str] = {
-    "programming": "🖥️",
-    "team_workflow": "👥",
-    "reading_writing": "📖",
-    "scientific": "🔬",
-    "creative_design": "🎨",
-    "distraction": "⚠️",
-    "unknown": "◯",
-}
+from adaptive_soundscape.ui.icons import build_profile_icons
 
 UPLOAD_STYLE = """
 QWidget#uploadPage {
@@ -300,7 +294,7 @@ class _UploadZone(QFrame):
         self._icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._icon)
 
-        self._hint = QLabel("Drop an audio file here\nor click to browse  (.wav / .mp3)")
+        self._hint = QLabel(tr("upload_hint"))
         self._hint.setObjectName("uploadHint")
         self._hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._hint)
@@ -363,6 +357,10 @@ class _UploadZone(QFrame):
         self._icon.show()
         self._hint.show()
 
+    def set_language(self) -> None:
+        """Re-apply the active language to the hint text."""
+        self._hint.setText(tr("upload_hint"))
+
 
 class _ProfilePanel(QWidget):
     """One scenario album: song summary, upload zone, SWAP → new song + Demucs."""
@@ -373,7 +371,7 @@ class _ProfilePanel(QWidget):
         super().__init__(parent)
         self._assets_dir = assets_dir
         self._profile_id = profile_id
-        self._display = display_name_for_profile(profile_id)
+        self._display = i18n_status_label(profile_id)
         self._stem_thread: _StemSeparateThread | None = None
         self._latest_song: Path | None = None
 
@@ -381,9 +379,9 @@ class _ProfilePanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        subtitle = QLabel(self._display)
-        subtitle.setObjectName("subtitleLabel")
-        layout.addWidget(subtitle)
+        self._subtitle = QLabel(self._display)
+        self._subtitle.setObjectName("subtitleLabel")
+        layout.addWidget(self._subtitle)
 
         self._track_bar = QFrame()
         self._track_bar.setObjectName("trackBar")
@@ -393,7 +391,7 @@ class _ProfilePanel(QWidget):
         self._current_label = QLabel("")
         self._current_label.setObjectName("currentTrackLabel")
         self._current_label.setWordWrap(True)
-        self._no_track_label = QLabel("No song family loaded")
+        self._no_track_label = QLabel(tr("no_track_label"))
         self._no_track_label.setObjectName("noTrackLabel")
         track_layout.addWidget(self._current_label)
         track_layout.addWidget(self._no_track_label)
@@ -408,16 +406,16 @@ class _ProfilePanel(QWidget):
 
         side = QVBoxLayout()
         side.setSpacing(8)
-        self._swap_btn = QPushButton("SWAP")
+        self._swap_btn = QPushButton(tr("swap_btn"))
         self._swap_btn.setFixedHeight(60)
         self._swap_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._swap_btn.setEnabled(False)
         self._swap_btn.setStyleSheet(SWAP_DISABLED)
-        self._swap_btn.setToolTip("Add staged file as a new song family (auto stem-separates)")
+        self._swap_btn.setToolTip(tr("swap_tip"))
         self._swap_btn.clicked.connect(self._on_swap)
         side.addWidget(self._swap_btn)
 
-        self._ai_btn = QPushButton("Generate AI Layers")
+        self._ai_btn = QPushButton(tr("ai_layers_btn"))
         self._ai_btn.setStyleSheet(SECONDARY_BTN)
         self._ai_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._ai_btn.clicked.connect(self._generate_ai)
@@ -439,12 +437,12 @@ class _ProfilePanel(QWidget):
             names = ", ".join(s.name for s in songs[:4])
             more = f" (+{len(songs) - 4})" if len(songs) > 4 else ""
             self._current_label.setText(
-                f"{len(songs)} song(s): {names}{more}"
+                tr("song_count").format(n=len(songs), names=f"{names}{more}")
             )
             self._current_label.show()
             self._no_track_label.hide()
         elif tracks:
-            self._current_label.setText(f"Current:  {tracks[0].name}")
+            self._current_label.setText(tr("current_track").format(name=tracks[0].name))
             self._current_label.show()
             self._no_track_label.hide()
         else:
@@ -589,6 +587,17 @@ class _ProfilePanel(QWidget):
             f"Wrote {', '.join(written)} for {song.name}.",
         )
 
+    def set_language(self) -> None:
+        """Re-apply the active language to this panel's static strings."""
+        self._display = i18n_status_label(self._profile_id)
+        self._subtitle.setText(self._display)
+        self._no_track_label.setText(tr("no_track_label"))
+        self._swap_btn.setText(tr("swap_btn"))
+        self._swap_btn.setToolTip(tr("swap_tip"))
+        self._ai_btn.setText(tr("ai_layers_btn"))
+        self._upload_zone.set_language()
+        self.refresh()
+
     def set_assets_dir(self, assets_dir: Path) -> None:
         self._assets_dir = assets_dir
         self.refresh()
@@ -618,20 +627,24 @@ class UploadPage(QWidget):
         self._tab_map: dict[int, str] = {}  # index → profile_id
         self._tab_index = 0
         self._dark = True
+        self._tab_icons = {
+            "dark": build_profile_icons("#a8a8bc"),
+            "light": build_profile_icons("#56566e"),
+        }
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 24)
         root.setSpacing(16)
 
         title_row = QHBoxLayout()
-        title = QLabel("Customize Soundtracks")
-        title.setObjectName("pageTitle")
-        title_row.addWidget(title)
+        self._title = QLabel(tr("upload_title"))
+        self._title.setObjectName("pageTitle")
+        title_row.addWidget(self._title)
         title_row.addStretch()
-        self._advanced_btn = QPushButton("Advanced…")
+        self._advanced_btn = QPushButton(tr("advanced_btn"))
         self._advanced_btn.setStyleSheet(SECONDARY_BTN)
         self._advanced_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._advanced_btn.setToolTip("Open full album / stem / intensity manager")
+        self._advanced_btn.setToolTip(tr("advanced_tip"))
         self._advanced_btn.clicked.connect(self._open_advanced)
         title_row.addWidget(self._advanced_btn)
         root.addLayout(title_row)
@@ -642,15 +655,16 @@ class UploadPage(QWidget):
 
         self._tab_buttons: list[QPushButton] = []
         for idx, profile_id in enumerate(PROFILE_IDS):
-            icon = PROFILE_ICONS.get(profile_id, "◯")
-            btn = QPushButton(icon)
-            btn.setToolTip(display_name_for_profile(profile_id))
+            btn = QPushButton()
+            btn.setIconSize(QSize(22, 22))
+            btn.setToolTip(i18n_status_label(profile_id))
             btn.setFixedWidth(44)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(lambda _c, i=idx: self._switch_tab(i))
             tab_row.addWidget(btn)
             self._tab_buttons.append(btn)
             self._tab_map[idx] = profile_id
+        self._apply_tab_icons()
 
         tab_row.addStretch()
         root.addLayout(tab_row)
@@ -669,6 +683,23 @@ class UploadPage(QWidget):
         root.addWidget(self._content, stretch=1)
 
         self._switch_tab(0)
+
+    def set_language(self, code: str) -> None:
+        """Switch UI language and retranslate the upload page's static strings."""
+        i18n_set_language(code)
+        self._retranslate()
+        for panel in self._panels.values():
+            panel.set_language()
+
+    def _retranslate(self) -> None:
+        self._title.setText(tr("upload_title"))
+        self._advanced_btn.setText(tr("advanced_btn"))
+        self._advanced_btn.setToolTip(tr("advanced_tip"))
+        for btn, profile_id in zip(self._tab_buttons, PROFILE_IDS):
+            btn.setToolTip(i18n_status_label(profile_id))
+        profile_id = self._tab_map.get(self._tab_index)
+        if profile_id:
+            self._tab_subtitle.setText(i18n_status_label(profile_id))
 
     def set_assets_dir(self, assets_dir: Path) -> None:
         self._assets_dir = assets_dir
@@ -696,6 +727,11 @@ class UploadPage(QWidget):
                 panel.refresh()
             self.soundtrack_changed.emit()
 
+    def _apply_tab_icons(self) -> None:
+        icons = self._tab_icons["dark" if self._dark else "light"]
+        for btn, profile_id in zip(self._tab_buttons, PROFILE_IDS):
+            btn.setIcon(icons[profile_id])
+
     def set_dark_mode(self, enabled: bool) -> None:
         """Apply dark / light stylesheet to the upload page and children."""
         self._dark = enabled
@@ -705,6 +741,7 @@ class UploadPage(QWidget):
         for i, btn in enumerate(self._tab_buttons):
             btn.setStyleSheet(on if i == self._tab_index else off)
         self._advanced_btn.setStyleSheet(SECONDARY_BTN)
+        self._apply_tab_icons()
         for panel in self._panels.values():
             panel.set_dark_mode(enabled)
 
@@ -719,4 +756,4 @@ class UploadPage(QWidget):
             btn.setStyleSheet(on if i == index else off)
         profile_id = self._tab_map.get(index)
         if profile_id and hasattr(self, "_tab_subtitle"):
-            self._tab_subtitle.setText(display_name_for_profile(profile_id))
+            self._tab_subtitle.setText(i18n_status_label(profile_id))
