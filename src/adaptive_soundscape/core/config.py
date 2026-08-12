@@ -39,6 +39,30 @@ class CognitiveConfig(BaseModel):
     focus_smoothing: float = 0.85
 
 
+class FocusIndexConfigModel(BaseModel):
+    enabled: bool = True
+    window_seconds: float = 600.0
+    weight_alignment: float = 0.35
+    weight_switch: float = 0.25
+    weight_idle: float = 0.20
+    weight_probe: float = 0.20
+    probe_ttl_minutes: float = 45.0
+    retention_days: int = 7
+    aligned_switch_penalty: float = 0.2
+    db_path: str = "config/focus_index.sqlite"
+
+
+class MufflingConfig(BaseModel):
+    strength: float = 0.65
+    break_muffling: float = 0.85
+
+
+class PomodoroConfig(BaseModel):
+    work_minutes: float = 25.0
+    break_minutes: float = 5.0
+    session_calibration_minutes: float = 5.0
+
+
 class AudioConfig(BaseModel):
     backend: str = "placeholder"
     sample_rate: int = 44100
@@ -95,6 +119,9 @@ class Settings(BaseSettings):
     context: ContextConfig = Field(default_factory=ContextConfig)
     transition: TransitionConfig = Field(default_factory=TransitionConfig)
     cognitive: CognitiveConfig = Field(default_factory=CognitiveConfig)
+    focus_index: FocusIndexConfigModel = Field(default_factory=FocusIndexConfigModel)
+    muffling: MufflingConfig = Field(default_factory=MufflingConfig)
+    pomodoro: PomodoroConfig = Field(default_factory=PomodoroConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
     adaptive_music: AdaptiveMusicConfigModel = Field(
         default_factory=AdaptiveMusicConfigModel

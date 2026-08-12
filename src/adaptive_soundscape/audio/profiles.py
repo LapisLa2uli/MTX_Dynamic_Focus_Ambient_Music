@@ -50,18 +50,21 @@ def adapt_parameters(profile: AudioProfile, state: FocusState) -> AudioParameter
             brightness=p.brightness * 0.75,
             energy=p.energy * 0.65,
             warmth=p.warmth,
+            muffling=p.muffling,
         )
     if state == FocusState.FATIGUE:
         return AudioParameters(
             brightness=p.brightness * 0.90,
             energy=p.energy * 0.80,
             warmth=min(1.0, p.warmth + 0.15),
+            muffling=p.muffling,
         )
     if state == FocusState.MILD_DISTRACTION:
         return AudioParameters(
             brightness=p.brightness * 0.85,
             energy=p.energy * 0.75,
             warmth=min(1.0, p.warmth + 0.08),
+            muffling=p.muffling,
         )
     return p
 

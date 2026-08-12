@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -9,14 +10,13 @@ from pathlib import Path
 logging.getLogger().addHandler(logging.NullHandler())
 
 from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from adaptive_soundscape.activity.monitor import ActivityMonitor
 from adaptive_soundscape.audio.factory import create_audio_backend
 from adaptive_soundscape.audio.music_director import MusicDirector, config_from_settings
 from adaptive_soundscape.audio.music_manifest import MusicIntensity
 from adaptive_soundscape.cognitive.estimator import FocusEstimator
-from adaptive_soundscape.cognitive.signals import FocusSignals
 from adaptive_soundscape.context.classifier import resolve_context
 from adaptive_soundscape.context.inferer import ContextInferer
 from adaptive_soundscape.context.persistence import ContextPersistence
@@ -41,10 +41,15 @@ from adaptive_soundscape.core.events import (
     PrivacySettingsChanged,
     WorkContext,
 )
+from adaptive_soundscape.focus_index.config import FocusIndexConfig
+from adaptive_soundscape.focus_index.service import FocusIndexService
+from adaptive_soundscape.session.calibration import CalibrationController
+from adaptive_soundscape.session.pomodoro import PomodoroController
 from adaptive_soundscape.transition.controller import TransitionController
 from adaptive_soundscape.ui.album_manager import AlbumManagerDialog
 from adaptive_soundscape.ui.category_editor import CategoryEditorDialog
 from adaptive_soundscape.ui.main_window import MainWindow
+from adaptive_soundscape.ui.probe_dialog import GoNoGoProbeDialog
 from adaptive_soundscape.ui.settings_page import DEFAULT_STATUS_COLORS, SettingsPage
 
 logger = logging.getLogger(__name__)
@@ -73,6 +78,34 @@ class AdaptiveSoundscapeApp:
             sensitivity=self.settings.cognitive.sensitivity,
             smoothing=self.settings.cognitive.focus_smoothing,
         )
+        fli_cfg = self.settings.focus_index
+        db_path = Path(fli_cfg.db_path)
+        if not db_path.is_absolute():
+            db_path = Path(__file__).resolve().parents[2] / db_path
+        self.focus_index = FocusIndexService(
+            config=FocusIndexConfig(
+                window_seconds=fli_cfg.window_seconds,
+                weight_alignment=fli_cfg.weight_alignment,
+                weight_switch=fli_cfg.weight_switch,
+                weight_idle=fli_cfg.weight_idle,
+                weight_probe=fli_cfg.weight_probe,
+                probe_ttl_minutes=fli_cfg.probe_ttl_minutes,
+                retention_days=fli_cfg.retention_days,
+                aligned_switch_penalty=fli_cfg.aligned_switch_penalty,
+                db_path=db_path,
+            ),
+            db_path=db_path,
+        )
+        self.focus_index.smoothing = self.settings.cognitive.focus_smoothing
+        self.pomodoro = PomodoroController(
+            work_minutes=self.settings.pomodoro.work_minutes,
+            break_minutes=self.settings.pomodoro.break_minutes,
+            session_calibration_minutes=self.settings.pomodoro.session_calibration_minutes,
+            break_muffling=self.settings.muffling.break_muffling,
+        )
+        self.calibration = CalibrationController()
+        self._muffling_strength = float(self.settings.muffling.strength)
+        self._probes_enabled = True
         self.transition = TransitionController(
             deep_focus_crossfade_seconds=self.settings.transition.deep_focus_crossfade_seconds,
             distraction_recovery_seconds=self.settings.transition.distraction_recovery_seconds,
@@ -101,7 +134,7 @@ class AdaptiveSoundscapeApp:
         self._prompted_processes: set[str] = set()
         self._dismissed_processes: set[str] = set()
         self._last_process_key = ""
-        # Pending classification info for the "Classification wrong?" button
+        # Pending classification info for the "Confirm Classification" button
         self._pending_classification: dict | None = None
 
         # Sync initial volume with config / Settings page
@@ -123,6 +156,12 @@ class AdaptiveSoundscapeApp:
         self.window.upload_page.soundtrack_changed.connect(self._on_albums_changed)
 
         self.window.home_page.action_toggled.connect(self._toggle_audio)
+        self.window.home_page.pomodoro_start_requested.connect(self._on_pomodoro_start)
+        self.window.home_page.pomodoro_cancel_requested.connect(self._on_pomodoro_cancel)
+        self.window.home_page.calibrate_requested.connect(self._on_calibrate_requested)
+        self.window.home_page.calibrate_cancel_requested.connect(
+            self._on_calibrate_cancel
+        )
         self.window.categories_clicked.connect(self._open_category_editor)
         self.window.albums_clicked.connect(self._open_album_manager)
         self.window._override_check.toggled.connect(self._on_override)
@@ -133,7 +172,7 @@ class AdaptiveSoundscapeApp:
         self._toast.confirmed.connect(self._on_inference_confirmed)
         self._toast.dismissed.connect(self._on_inference_dismissed)
 
-        # Show classification toast on demand (user clicks "Classification wrong?")
+        # Show classification toast on demand (user clicks "Confirm Classification")
         self.window.home_page.classify_requested.connect(self._on_classify_requested)
 
         # ── Settings page signals ──
@@ -148,6 +187,11 @@ class AdaptiveSoundscapeApp:
         sp.reset_requested.connect(self._on_reset_settings)
         sp.status_colors_changed.connect(self._on_status_colors_changed)
         sp.dark_mode_toggled.connect(self._on_dark_mode_changed)
+        sp.muffling_strength_changed.connect(self._on_muffling_strength_changed)
+        sp.probes_enabled_changed.connect(self._on_probes_enabled_changed)
+        sp.probe_requested.connect(self._on_probe_requested)
+        sp.export_focus_data_requested.connect(self._on_export_focus_data)
+        sp.delete_focus_data_requested.connect(self._on_delete_focus_data)
 
         self._ui_prefs = load_ui_preferences()
         self._main_theme = self._ui_prefs.main_theme or "unknown"
@@ -156,6 +200,8 @@ class AdaptiveSoundscapeApp:
             self._status_colors.update(self._ui_prefs.status_colors)
         self._waveform_smoothness = float(self._ui_prefs.waveform_smoothness)
         self._aurora_brightness_gain = float(self._ui_prefs.aurora_brightness_gain)
+        self._muffling_strength = float(self._ui_prefs.muffling_strength)
+        self._probes_enabled = bool(self._ui_prefs.probes_enabled)
         self._apply_ui_preferences()
 
         qt_app = QApplication.instance()
@@ -201,6 +247,8 @@ class AdaptiveSoundscapeApp:
                 main_theme=self._main_theme,
                 waveform_smoothness=self._waveform_smoothness,
                 aurora_brightness_gain=self._aurora_brightness_gain,
+                muffling_strength=self._muffling_strength,
+                probes_enabled=self._probes_enabled,
                 status_colors=dict(self._status_colors),
             )
             save_ui_preferences(prefs)
@@ -216,6 +264,8 @@ class AdaptiveSoundscapeApp:
         self.window.home_page.set_waveform_smoothness(self._waveform_smoothness)
         sp.set_aurora_brightness_gain(self._aurora_brightness_gain)
         self.window.home_page.set_aurora_brightness_gain(self._aurora_brightness_gain)
+        sp.set_muffling_strength(self._muffling_strength)
+        sp.set_probes_enabled(self._probes_enabled)
         self.window._set_dark_mode(bool(self._ui_prefs.dark_mode))
         sp.set_dark_mode(bool(self._ui_prefs.dark_mode))
 
@@ -240,10 +290,11 @@ class AdaptiveSoundscapeApp:
         decision = self.transition.decide(
             self._current_context, self._current_focus, self._focus_score
         )
+        params = self._apply_muffling_to_params(decision.parameters, self._focus_score)
         try:
             self._bind_director_backend(self.audio)
             self.director.set_scenario(decision.profile_id, self._focus_score)
-            self.director.set_parameters(decision.parameters)
+            self.director.set_parameters(params)
             self.director.play()
         except Exception as exc:
             logger.exception("Failed to start audio backend")
@@ -256,7 +307,7 @@ class AdaptiveSoundscapeApp:
                     )
                     self._bind_director_backend(self.audio)
                     self.director.set_scenario(decision.profile_id, self._focus_score)
-                    self.director.set_parameters(decision.parameters)
+                    self.director.set_parameters(params)
                     self.director.play()
                     self.window.set_status_message(
                         "Using built-in audio mixer (Godot unavailable)."
@@ -275,7 +326,7 @@ class AdaptiveSoundscapeApp:
         self.window.home_page.set_running(True)
         self._viz_timer.start()
         self._refresh_eq_bands()
-        self._publish_audio_params(decision)
+        self._publish_audio_params(decision, params)
         self._refresh_ui(decision.display_name)
 
     def _bind_director_backend(self, backend) -> None:
@@ -383,6 +434,8 @@ class AdaptiveSoundscapeApp:
         self._status_colors = dict(DEFAULT_STATUS_COLORS)
         self._waveform_smoothness = SettingsPage.DEFAULT_WAVEFORM_SMOOTHNESS
         self._aurora_brightness_gain = SettingsPage.DEFAULT_AURORA_BRIGHTNESS_GAIN
+        self._muffling_strength = SettingsPage.DEFAULT_MUFFLING_STRENGTH
+        self._probes_enabled = True
         self.window.settings_page.set_volume(defaults.audio.master_volume)
         self.window.settings_page.set_threshold(defaults.cognitive.sensitivity)
         self.window.settings_page.set_waveform_smoothness(
@@ -397,6 +450,8 @@ class AdaptiveSoundscapeApp:
         self.window.home_page.set_aurora_brightness_gain(
             SettingsPage.DEFAULT_AURORA_BRIGHTNESS_GAIN
         )
+        self.window.settings_page.set_muffling_strength(self._muffling_strength)
+        self.window.settings_page.set_probes_enabled(True)
         self.window.settings_page.set_main_theme("unknown")
         self.window.settings_page.set_status_colors(dict(DEFAULT_STATUS_COLORS))
         self.director.set_volume(defaults.audio.master_volume)
@@ -406,6 +461,99 @@ class AdaptiveSoundscapeApp:
 
     def _on_sensitivity(self, value: float) -> None:
         self.estimator.sensitivity = value
+        self.focus_index.smoothing = self.settings.cognitive.focus_smoothing
+
+    def _on_muffling_strength_changed(self, value: float) -> None:
+        self._muffling_strength = max(0.0, min(1.0, float(value)))
+        self.settings.muffling.strength = self._muffling_strength
+        self._persist_user_state()
+
+    def _on_probes_enabled_changed(self, enabled: bool) -> None:
+        self._probes_enabled = bool(enabled)
+        self._persist_user_state()
+
+    def _on_pomodoro_start(self, task_profile: str) -> None:
+        state = self.pomodoro.start_work(task_profile or "unknown")
+        self.focus_index.set_task_profile(state.task_profile)
+        if self.pomodoro.in_session_calibration:
+            self.calibration.start_session(state.task_profile, minutes=5.0)
+            self.focus_index.set_calibration_mode(True, force_aligned=True)
+        self.window.home_page.set_pomodoro_active(True, label="End Pomodoro")
+        self.window.set_status_message(
+            state.notice or f"Pomodoro work started ({state.task_profile})."
+        )
+
+    def _on_pomodoro_cancel(self) -> None:
+        self.pomodoro.cancel()
+        self.focus_index.set_calibration_mode(False)
+        self.calibration.cancel()
+        self.focus_index.storage.delete_session_patterns()
+        self.window.home_page.set_pomodoro_active(False)
+        self.window.set_status_message("Pomodoro ended.")
+
+    def _on_calibrate_requested(self, task_profile: str) -> None:
+        profile = task_profile or "unknown"
+        state = self.calibration.start_dedicated(profile, minutes=8.0)
+        self.focus_index.set_task_profile(profile)
+        self.focus_index.set_calibration_mode(True, force_aligned=True)
+        self.window.home_page.set_calibration_active(True, label="Cancel Calibration")
+        self.window.set_status_message(state.notice)
+
+    def _on_calibrate_cancel(self) -> None:
+        self.calibration.cancel()
+        self.focus_index.set_calibration_mode(False)
+        self.window.home_page.set_calibration_active(False)
+        self.window.set_status_message("Calibration cancelled.")
+
+    def _on_probe_requested(self) -> None:
+        if not self._probes_enabled:
+            self.window.set_status_message("Attention probes are disabled in Settings.")
+            return
+        profile = self.focus_index.bridge.task_profile
+        event = GoNoGoProbeDialog.run(self.window, task_profile=profile)
+        if event is None:
+            return
+        self.focus_index.record_probe(event)
+        self.window.set_status_message(
+            f"Probe recorded — accuracy {event.accuracy:.0%}."
+        )
+
+    def _on_export_focus_data(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self.window,
+            "Export Focus Data",
+            "focus_index_export.json",
+            "JSON (*.json)",
+        )
+        if not path:
+            return
+        try:
+            data = self.focus_index.export_data()
+            Path(path).write_text(json.dumps(data, indent=2), encoding="utf-8")
+            self.window.set_status_message(f"Exported focus data to {Path(path).name}.")
+        except OSError as exc:
+            self.window.set_status_message(f"Export failed: {exc}")
+
+    def _on_delete_focus_data(self) -> None:
+        reply = QMessageBox.question(
+            self.window,
+            "Delete Focus Data",
+            "Delete all local focus events, aggregates, and calibration patterns?",
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self.focus_index.delete_all_data()
+        self.window.set_status_message("Focus data deleted.")
+
+    def _compute_muffling(self, focus_score: float) -> float:
+        base = max(0.0, min(1.0, (1.0 - focus_score) * self._muffling_strength))
+        override = self.pomodoro.muffling_override()
+        if override is not None:
+            return max(base, override)
+        return base
+
+    def _apply_muffling_to_params(self, params, focus_score: float):
+        return params.with_muffling(self._compute_muffling(focus_score))
 
     def _on_privacy(self, _checked: bool) -> None:
         titles, processes, log_activity = self.window.privacy_settings()
@@ -443,28 +591,95 @@ class AdaptiveSoundscapeApp:
             self.bus.publish(ContextChanged(self._current_context, ctx, confidence))
             self._current_context = ctx
 
-        metrics = self.monitor.metrics(snapshot, interval)
-        signals = FocusSignals(
-            input_rate=metrics.input_rate,
-            switch_rate=metrics.switch_rate,
-            idle_ratio=metrics.idle_ratio,
-            cpu_load=metrics.cpu_load,
-            context=ctx,
-            context_confidence=confidence,
-        )
-        estimate = self.estimator.estimate(signals)
+        # Pomodoro / calibration bookkeeping before scoring.
+        pomo = self.pomodoro.tick()
+        calib_state, calib_done = self.calibration.tick()
+        if calib_done:
+            kind = self.calibration.last_completed_kind
+            scope = "session" if kind and kind.value == "session" else "dedicated"
+            try:
+                self.focus_index.save_calibration_pattern(
+                    task_profile=calib_state.task_profile or ctx.value,
+                    scope=scope,
+                    window_seconds=max(60.0, calib_state.duration_minutes * 60.0),
+                )
+            except Exception:
+                logger.exception("Failed to save calibration pattern")
+            self.focus_index.set_calibration_mode(False)
+            self.window.home_page.set_calibration_active(False)
+            self.window.set_status_message(calib_state.notice or "Calibration complete.")
+        elif self.calibration.force_aligned or self.pomodoro.in_session_calibration:
+            self.focus_index.set_calibration_mode(True, force_aligned=True)
+        else:
+            self.focus_index.set_calibration_mode(False)
+
+        if self.settings.focus_index.enabled:
+            estimate = self.focus_index.estimate_for_app(
+                snapshot, ctx, interval_s=interval
+            )
+        else:
+            from adaptive_soundscape.cognitive.signals import FocusSignals
+
+            metrics = self.monitor.metrics(snapshot, interval)
+            signals = FocusSignals(
+                input_rate=metrics.input_rate,
+                switch_rate=metrics.switch_rate,
+                idle_ratio=metrics.idle_ratio,
+                cpu_load=metrics.cpu_load,
+                context=ctx,
+                context_confidence=confidence,
+            )
+            estimate = self.estimator.estimate(signals)
+
         if estimate.state != self._current_focus or abs(estimate.focus_score - self._focus_score) > 0.01:
             self.bus.publish(FocusUpdated(estimate.focus_score, estimate.state))
         self._current_focus = estimate.state
         self._focus_score = estimate.focus_score
 
         decision = self.transition.decide(ctx, estimate.state, estimate.focus_score)
+        params = self._apply_muffling_to_params(decision.parameters, estimate.focus_score)
         if decision.should_transition and self._audio_running:
             self._apply_audio(decision)
         elif self._audio_running:
             # Intensity adapts continuously inside the active song.
             self.director.update_intensity(estimate.focus_score)
-            self.director.set_parameters(decision.parameters)
+            self.director.set_parameters(params)
+
+        # Periodic retention purge (cheap; once per ~hour of ticks).
+        if not hasattr(self, "_purge_counter"):
+            self._purge_counter = 0
+        self._purge_counter += 1
+        if self._purge_counter >= 3600:
+            self._purge_counter = 0
+            try:
+                self.focus_index.purge()
+            except Exception:
+                logger.exception("Focus index purge failed")
+
+        if self.pomodoro.state.is_active:
+            remaining = int(self.pomodoro.state.remaining_seconds)
+            mm, ss = divmod(remaining, 60)
+            phase = self.pomodoro.state.phase.value.replace("_", " ")
+            self.window.home_page.set_pomodoro_active(
+                True, label=f"End · {mm:02d}:{ss:02d}"
+            )
+            self.window.set_status_message(
+                f"Pomodoro {phase}: {mm:02d}:{ss:02d}"
+                + (f" — {self.pomodoro.state.notice}" if self.pomodoro.state.notice else "")
+            )
+        else:
+            self.window.home_page.set_pomodoro_active(False)
+        if self.calibration.state.active and not self.pomodoro.state.is_active:
+            remaining = int(self.calibration.state.remaining_seconds)
+            mm, ss = divmod(remaining, 60)
+            self.window.home_page.set_calibration_active(
+                True, label=f"Cancel · {mm:02d}:{ss:02d}"
+            )
+            self.window.set_status_message(
+                f"{self.calibration.state.notice} ({mm:02d}:{ss:02d} left)"
+            )
+        elif not self.calibration.state.active:
+            self.window.home_page.set_calibration_active(False)
 
         self._refresh_ui(decision.display_name)
         self.monitor.reset_window_switches()
@@ -514,7 +729,7 @@ class AdaptiveSoundscapeApp:
         self.window.home_page.set_classify_available(True)
 
     def _on_classify_requested(self) -> None:
-        """User clicked 'Classification wrong?' — show the toast inline."""
+        """User clicked 'Confirm Classification' — show the toast inline."""
         info = self._pending_classification
         if info is None:
             return
@@ -563,19 +778,21 @@ class AdaptiveSoundscapeApp:
 
     def _apply_audio(self, decision) -> None:
         self._active_profile_id = decision.profile_id
+        params = self._apply_muffling_to_params(decision.parameters, self._focus_score)
         if self._audio_running:
             self.director.set_scenario(decision.profile_id, self._focus_score)
-            self.director.set_parameters(decision.parameters)
+            self.director.set_parameters(params)
             self.director.update_intensity(self._focus_score)
-        self._publish_audio_params(decision)
+        self._publish_audio_params(decision, params)
 
-    def _publish_audio_params(self, decision) -> None:
+    def _publish_audio_params(self, decision, params=None) -> None:
+        p = params if params is not None else decision.parameters
         self.bus.publish(
             AudioParametersUpdated(
                 profile_id=decision.profile_id,
-                brightness=decision.parameters.brightness,
-                energy=decision.parameters.energy,
-                warmth=decision.parameters.warmth,
+                brightness=p.brightness,
+                energy=p.energy,
+                warmth=p.warmth,
                 crossfade_seconds=decision.crossfade_seconds,
             )
         )

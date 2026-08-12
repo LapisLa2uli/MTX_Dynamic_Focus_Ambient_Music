@@ -1,0 +1,187 @@
+"""FocusIndexService — window orchestration API for the live app."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from adaptive_soundscape.cognitive.estimator import FocusEstimate
+from adaptive_soundscape.core.events import ActivitySnapshot, FocusState, WorkContext
+from adaptive_soundscape.focus_index.baseline import baseline_for_profile
+from adaptive_soundscape.focus_index.collectors import ActivityBridge
+from adaptive_soundscape.focus_index.config import FocusIndexConfig
+from adaptive_soundscape.focus_index.models import (
+    AttentionProbeEvent,
+    FocusIndexResult,
+    FocusStatus,
+    SessionConfigEvent,
+)
+from adaptive_soundscape.focus_index.patterns import max_similarity, vector_from_events
+from adaptive_soundscape.focus_index.scoring import score_window
+from adaptive_soundscape.focus_index.storage import FocusIndexStorage
+
+
+def _band_to_focus_state(result: FocusIndexResult, context: WorkContext) -> FocusState:
+    if result.focus_band.value == "uncertain" or result.status == FocusStatus.INSUFFICIENT:
+        return FocusState.CALM_PRODUCTIVITY
+    score = result.as_unit_score()
+    if context == WorkContext.DISTRACTION and score < 0.45:
+        return FocusState.MILD_DISTRACTION
+    if score >= 0.82:
+        return FocusState.DEEP_FOCUS
+    if score >= 0.65:
+        return FocusState.DEEP_FOCUS
+    if score >= 0.45:
+        return FocusState.CALM_PRODUCTIVITY
+    return FocusState.MILD_DISTRACTION
+
+
+class FocusIndexService:
+    """Collect privacy-safe events and score the rolling window."""
+
+    def __init__(
+        self,
+        config: FocusIndexConfig | None = None,
+        storage: FocusIndexStorage | None = None,
+        db_path: Path | None = None,
+    ) -> None:
+        self.config = config or FocusIndexConfig()
+        if db_path is not None:
+            self.config.db_path = db_path
+        self.storage = storage or FocusIndexStorage(self.config.db_path)
+        self.bridge = ActivityBridge(
+            task_profile="default",
+            idle_threshold_s=self.config.idle_threshold_s,
+        )
+        self._force_aligned = False
+        self._last_result: FocusIndexResult | None = None
+        self._ema = 0.5
+        self.smoothing = 0.85
+
+    def set_task_profile(self, task_profile: str) -> None:
+        self.bridge.set_task_profile(task_profile)
+        self.storage.insert_event(
+            SessionConfigEvent(task_profile=task_profile, probes_enabled=True)
+        )
+
+    def set_calibration_mode(self, enabled: bool, *, force_aligned: bool = True) -> None:
+        self.bridge.set_calibration(enabled)
+        self._force_aligned = bool(enabled and force_aligned)
+
+    def ingest_tick(
+        self,
+        snapshot: ActivitySnapshot,
+        context: WorkContext,
+        *,
+        interval_s: float,
+    ) -> None:
+        events = self.bridge.ingest(
+            snapshot,
+            context,
+            interval_s=interval_s,
+            force_aligned=self._force_aligned,
+        )
+        for event in events:
+            self.storage.insert_event(event)
+
+    def record_probe(self, event: AttentionProbeEvent) -> None:
+        self.storage.insert_event(event)
+
+    def score_current_window(
+        self,
+        *,
+        task_profile: str | None = None,
+        now: datetime | None = None,
+        persist: bool = True,
+    ) -> FocusIndexResult:
+        end = now or datetime.now(timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        start = end - timedelta(seconds=self.config.window_seconds)
+        profile = task_profile or self.bridge.task_profile
+        events = self.storage.load_events(start=start, end=end)
+        # Prefer events for profile but include unscoped recent ticks.
+        profile_events = [
+            e for e in events if getattr(e, "task_profile", profile) == profile
+        ]
+        use_events = profile_events or events
+
+        current_vec = vector_from_events(
+            use_events,
+            window_start=start,
+            window_end=end,
+            config=self.config,
+        )
+        patterns = self.storage.load_patterns(profile, include_session=True)
+        similarity = max_similarity(current_vec, patterns)
+
+        baseline = baseline_for_profile(self.storage, profile, self.config)
+        result = score_window(
+            use_events,
+            window_start=start,
+            window_end=end,
+            config=self.config,
+            pattern_similarity=similarity,
+            baseline_status=baseline.status
+            if baseline.status == FocusStatus.CALIBRATING
+            else None,
+        )
+        result.task_profile = profile
+        result.extras["baseline_samples"] = baseline.sample_count
+        result.extras["baseline_median"] = baseline.median
+        if persist and result.focus_index is not None:
+            self.storage.save_aggregate(result)
+        self._last_result = result
+        return result
+
+    def estimate_for_app(
+        self,
+        snapshot: ActivitySnapshot,
+        context: WorkContext,
+        *,
+        interval_s: float,
+    ) -> FocusEstimate:
+        """Adapter: ingest + score → FocusEstimate for MusicDirector path."""
+        self.ingest_tick(snapshot, context, interval_s=interval_s)
+        result = self.score_current_window(persist=True)
+        raw = result.as_unit_score()
+        self._ema = self.smoothing * self._ema + (1.0 - self.smoothing) * raw
+        score = max(0.0, min(1.0, self._ema))
+        state = _band_to_focus_state(result, context)
+        return FocusEstimate(focus_score=score, state=state, raw_score=raw)
+
+    @property
+    def last_result(self) -> FocusIndexResult | None:
+        return self._last_result
+
+    def save_calibration_pattern(
+        self,
+        *,
+        task_profile: str,
+        scope: str = "dedicated",
+        now: datetime | None = None,
+        window_seconds: float | None = None,
+    ) -> str:
+        end = now or datetime.now(timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        seconds = window_seconds or self.config.window_seconds
+        start = end - timedelta(seconds=seconds)
+        events = self.storage.load_events(start=start, end=end, task_profile=task_profile)
+        if not events:
+            events = self.storage.load_events(start=start, end=end)
+        features = vector_from_events(
+            events, window_start=start, window_end=end, config=self.config
+        )
+        return self.storage.save_pattern(
+            task_profile=task_profile, features=features, scope=scope
+        )
+
+    def purge(self) -> int:
+        return self.storage.purge(config=self.config)
+
+    def export_data(self) -> dict:
+        return self.storage.export_json()
+
+    def delete_all_data(self) -> None:
+        self.storage.delete_all()

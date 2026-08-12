@@ -9,7 +9,6 @@ from random import Random
 from PyQt6.QtCore import QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QRadialGradient
 from PyQt6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -80,13 +79,7 @@ QProgressBar#focusBar::chunk {{
     background-color: #5b8def;
     border-radius: {px(3)};
 }}
-QFrame#descBox {{
-    background-color: #23232a;
-    border: 1px solid #363640;
-    border-radius: {px(10, 6)};
-    padding: {px(14, 8)} {px(18, 10)};
-}}
-QPushButton#classifyBtn {{
+QPushButton#classifyBtn, QPushButton#pomoBtn, QPushButton#calibBtn {{
     background-color: #2a2a36;
     border: 2px solid #555566;
     border-radius: {px(14, 8)};
@@ -95,10 +88,15 @@ QPushButton#classifyBtn {{
     font-size: {px(11, 9)};
     font-weight: 600;
 }}
-QPushButton#classifyBtn:hover {{
+QPushButton#classifyBtn:hover, QPushButton#pomoBtn:hover, QPushButton#calibBtn:hover {{
     border-color: #5b8def;
     color: #ccd8f8;
     background-color: rgba(91, 141, 239, 0.16);
+}}
+QPushButton#pomoBtn[active="true"], QPushButton#calibBtn[active="true"] {{
+    border-color: #5b8def;
+    color: #e8eefc;
+    background-color: rgba(91, 141, 239, 0.22);
 }}
 """
     return f"""
@@ -142,13 +140,7 @@ QProgressBar#focusBar::chunk {{
     background-color: #5b8def;
     border-radius: {px(3)};
 }}
-QFrame#descBox {{
-    background-color: #eaeaef;
-    border: 1px solid #d0d0d8;
-    border-radius: {px(10, 6)};
-    padding: {px(14, 8)} {px(18, 10)};
-}}
-QPushButton#classifyBtn {{
+QPushButton#classifyBtn, QPushButton#pomoBtn, QPushButton#calibBtn {{
     background-color: #eaeaef;
     border: 2px solid #c0c0cc;
     border-radius: {px(14, 8)};
@@ -157,10 +149,15 @@ QPushButton#classifyBtn {{
     font-size: {px(11, 9)};
     font-weight: 600;
 }}
-QPushButton#classifyBtn:hover {{
+QPushButton#classifyBtn:hover, QPushButton#pomoBtn:hover, QPushButton#calibBtn:hover {{
     border-color: #3d6fd4;
     color: #3d6fd4;
     background-color: rgba(61, 111, 212, 0.10);
+}}
+QPushButton#pomoBtn[active="true"], QPushButton#calibBtn[active="true"] {{
+    border-color: #3d6fd4;
+    color: #2a4f9e;
+    background-color: rgba(61, 111, 212, 0.14);
 }}
 """
 
@@ -218,34 +215,6 @@ QPushButton:pressed {
     border-bottom: 5px solid #601010;
 }
 """
-
-DESCRIPTION_TEXT = (
-    "Adaptive Cognitive Soundscape is an intelligent audio companion that\n"
-    "monitors your workspace activity in real time — recognising whether you\n"
-    "are coding, reading, designing, or distracted — and dynamically adjusts\n"
-    "ambient background audio to sustain deep focus and reduce cognitive drift.\n"
-    "It runs locally on your machine, works with your own sound libraries,\n"
-    "and requires no internet connection."
-)
-
-DESC_BOX_STYLE = """
-QFrame#descBox {
-    background-color: #22222a;
-    border: 1px solid #3a3a48;
-    border-radius: 10px;
-    padding: 14px 18px;
-}
-"""
-
-LIGHT_DESC_BOX_STYLE = """
-QFrame#descBox {
-    background-color: #eaeaef;
-    border: 1px solid #c8c8d0;
-    border-radius: 10px;
-    padding: 14px 18px;
-}
-"""
-
 
 @dataclass
 class _AuroraBlob:
@@ -680,6 +649,10 @@ class HomePage(QWidget):
 
     action_toggled = pyqtSignal(bool)  # True=start, False=stop
     classify_requested = pyqtSignal()  # user wants to classify current window
+    pomodoro_start_requested = pyqtSignal(str)
+    pomodoro_cancel_requested = pyqtSignal()
+    calibrate_requested = pyqtSignal(str)
+    calibrate_cancel_requested = pyqtSignal()
 
     # Design reference for responsive layout (content area ~590×520 at min window)
     _REF_W = 590.0
@@ -703,6 +676,9 @@ class HomePage(QWidget):
         self._blob_count_f = float(self._BLOB_MIN)
         self._blob_rng = Random(7)
         self._blobs = self._make_blobs(self._BLOB_MAX, seed=7)
+        self._current_context = WorkContext.UNKNOWN
+        self._pomodoro_active = False
+        self._calibration_active = False
         self._aurora_timer = QTimer(self)
         self._aurora_timer.timeout.connect(self._tick_aurora)
         self._aurora_timer.start(33)  # ~30 fps drift — soft screensaver pace
@@ -738,6 +714,7 @@ class HomePage(QWidget):
         status_w.setStyleSheet("background: transparent;")
         self._status_layout = QVBoxLayout(status_w)
         self._status_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._status_layout.setContentsMargins(0, 0, 0, 0)
         self._status_layout.setSpacing(8)
 
         focus_row = QHBoxLayout()
@@ -769,18 +746,19 @@ class HomePage(QWidget):
         self._music_detail.setWordWrap(True)
         self._status_layout.addWidget(self._music_detail)
 
-        # "Classification wrong?" button — subtle, below the music detail
-        self._classify_btn = QPushButton("\u26a0\ufe0f  Classification wrong?")
-        self._classify_btn.setObjectName("classifyBtn")
-        self._classify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._classify_btn.setFixedWidth(200)
-        self._classify_btn.clicked.connect(lambda: self.classify_requested.emit())
-        self._classify_btn.setVisible(False)
-        self._status_layout.addWidget(self._classify_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-
         self._top_stack.addWidget(status_w)  # index 1
 
         self._root.addWidget(self._top_stack, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Outside the fixed-height top stack so the full button is never clipped.
+        self._classify_btn = QPushButton("Confirm Classification")
+        self._classify_btn.setObjectName("classifyBtn")
+        self._classify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._classify_btn.setMinimumWidth(200)
+        self._classify_btn.setMinimumHeight(32)
+        self._classify_btn.clicked.connect(lambda: self.classify_requested.emit())
+        self._classify_btn.setVisible(False)
+        self._root.addWidget(self._classify_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # ── Center: circular button with outward EQ bars (needs extra canvas) ──
         self._eq_ring = EqRingWidget()
@@ -792,28 +770,34 @@ class HomePage(QWidget):
         btn_container.addWidget(self._eq_ring)
         self._root.addLayout(btn_container)
 
-        # ── Bottom: full product description, boxed, left-aligned ──
-        self._desc_box = QFrame()
-        self._desc_box.setObjectName("descBox")
-        self._desc_box.setMaximumWidth(520)
-        desc_inner = QVBoxLayout(self._desc_box)
-        desc_inner.setContentsMargins(0, 0, 0, 0)
+        session_row = QHBoxLayout()
+        session_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        session_row.setSpacing(10)
 
-        self._description = QLabel(DESCRIPTION_TEXT)
-        self._description.setObjectName("descriptionLabel")
-        self._description.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self._description.setWordWrap(True)
-        desc_inner.addWidget(self._description)
+        self._pomo_btn = QPushButton("Start Pomodoro")
+        self._pomo_btn.setObjectName("pomoBtn")
+        self._pomo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._pomo_btn.setFixedWidth(168)
+        self._pomo_btn.setProperty("active", False)
+        self._pomo_btn.clicked.connect(self._on_pomodoro_clicked)
+        session_row.addWidget(self._pomo_btn)
 
-        desc_container = QHBoxLayout()
-        desc_container.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        desc_container.addWidget(self._desc_box)
-        self._root.addLayout(desc_container)
+        self._calib_btn = QPushButton("Calibrate Focus")
+        self._calib_btn.setObjectName("calibBtn")
+        self._calib_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._calib_btn.setFixedWidth(168)
+        self._calib_btn.setProperty("active", False)
+        self._calib_btn.setToolTip(
+            "Run a 5–10 minute focused calibration for the current task profile."
+        )
+        self._calib_btn.clicked.connect(self._on_calibrate_clicked)
+        session_row.addWidget(self._calib_btn)
+
+        self._root.addLayout(session_row)
 
         self._root.addStretch(1)
 
         self.setStyleSheet(_home_stylesheet(dark=True, scale=1.0))
-        self._desc_box.setStyleSheet(DESC_BOX_STYLE)
         self._apply_layout_scale(force=True)
 
     def resizeEvent(self, event) -> None:  # noqa: N803
@@ -839,23 +823,19 @@ class HomePage(QWidget):
         self._status_layout.setSpacing(max(4, int(round(8 * scale))))
 
         top_h = max(64, int(round(80 * scale)))
-        # Running status needs room for focus bar + theme + music detail + classify btn
+        # Running status: focus bar + theme + music detail
         if self._running:
-            top_h = max(top_h, int(round(170 * scale)))
+            top_h = max(top_h, int(round(120 * scale)))
         self._top_stack.setFixedHeight(top_h)
 
         btn = max(160, int(round(self._BTN_DESIGN * scale)))
         self._eq_ring.setFixedSize(btn, btn)
 
         self._focus_bar.setFixedWidth(max(160, int(round(240 * scale))))
-        desc_w = min(max(280, int(round(520 * scale))), max(280, self.width() - 2 * m))
-        self._desc_box.setMaximumWidth(desc_w)
+        self._classify_btn.setMinimumWidth(max(200, int(round(210 * scale))))
+        self._classify_btn.setMinimumHeight(max(32, int(round(34 * scale))))
 
         self.setStyleSheet(_home_stylesheet(dark=self._dark, scale=scale))
-        # Desc box has its own stylesheet for theme; keep border padding in sync via object stylesheet
-        self._desc_box.setStyleSheet(
-            DESC_BOX_STYLE if self._dark else LIGHT_DESC_BOX_STYLE
-        )
         self._eq_ring.update()
     # ── Aurora background ───────────────────────────────────────
 
@@ -1016,6 +996,67 @@ class HomePage(QWidget):
         """User clicked the action button — emit intent to toggle."""
         self.action_toggled.emit(not self._running)
 
+    def _task_profile(self) -> str:
+        profile = self._current_context.value
+        if profile == WorkContext.DISTRACTION.value:
+            return WorkContext.UNKNOWN.value
+        return profile
+
+    def _on_pomodoro_clicked(self) -> None:
+        if self._pomodoro_active:
+            self.pomodoro_cancel_requested.emit()
+            return
+        self.pomodoro_start_requested.emit(self._task_profile())
+
+    def _on_calibrate_clicked(self) -> None:
+        if self._calibration_active:
+            self.calibrate_cancel_requested.emit()
+            return
+        self.calibrate_requested.emit(self._task_profile())
+
+    @staticmethod
+    def _sync_session_button(
+        button: QPushButton,
+        *,
+        active_flag_attr: str,
+        active: bool,
+        idle_text: str,
+        active_text: str,
+        owner: "HomePage",
+    ) -> None:
+        active = bool(active)
+        text = active_text if active else idle_text
+        if getattr(owner, active_flag_attr) == active and button.text() == text:
+            return
+        setattr(owner, active_flag_attr, active)
+        button.setText(text)
+        button.setProperty("active", active)
+        button.style().unpolish(button)
+        button.style().polish(button)
+        button.update()
+
+    def set_pomodoro_active(self, active: bool, *, label: str | None = None) -> None:
+        """Sync Pomodoro button label/state from the app controller."""
+        self._sync_session_button(
+            self._pomo_btn,
+            active_flag_attr="_pomodoro_active",
+            active=active,
+            idle_text="Start Pomodoro",
+            active_text=label or "End Pomodoro",
+            owner=self,
+        )
+
+    def set_calibration_active(self, active: bool, *, label: str | None = None) -> None:
+        """Sync dedicated calibration button label/state from the app controller."""
+        self._sync_session_button(
+            self._calib_btn,
+            active_flag_attr="_calibration_active",
+            active=active,
+            idle_text="Calibrate Focus",
+            active_text=label or "Cancel Calibration",
+            owner=self,
+        )
+
     def set_running(self, running: bool) -> None:
         """Sync button text, colour, and top-area content from the app."""
         if self._running == running:
@@ -1039,7 +1080,7 @@ class HomePage(QWidget):
         self._eq_ring.set_smoothness(value)
 
     def set_classify_available(self, available: bool) -> None:
-        """Show/hide the 'Classification wrong?' button."""
+        """Show/hide the 'Confirm Classification' button."""
         visible = available and self._running
         if self._classify_btn.isVisible() == visible:
             return
@@ -1061,6 +1102,8 @@ class HomePage(QWidget):
         )
         self.set_aurora_color(color)
         self._focus_target = max(0.0, min(1.0, float(focus_score)))
+
+        self._current_context = context
 
         if not self._running:
             return

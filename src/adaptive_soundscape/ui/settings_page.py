@@ -11,13 +11,21 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QSlider,
     QVBoxLayout,
     QWidget,
 )
 
 from adaptive_soundscape.core.events import WorkContext
+
+DESCRIPTION_TEXT = (
+    "Adaptive Cognitive Soundscape is an intelligent audio companion that "
+    "monitors your workspace activity in real time — recognising whether you "
+    "are coding, reading, designing, or distracted — and dynamically adjusts "
+    "ambient background audio to sustain deep focus and reduce cognitive drift. "
+    "It runs locally on your machine, works with your own sound libraries, "
+    "and requires no internet connection."
+)
 
 # ---------------------------------------------------------------------------
 # Theme labels (shared with home_page)
@@ -69,6 +77,13 @@ QLabel#hintLabel {
     font-size: 12px;
     font-weight: 400;
     padding-left: 2px;
+}
+QLabel#aboutLabel {
+    color: #a8a8b8;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.45;
+    padding: 4px 2px 8px 2px;
 }
 QSlider::groove:horizontal {
     background: #2e2e36;
@@ -142,6 +157,13 @@ QLabel#hintLabel {
     font-size: 12px;
     font-weight: 400;
     padding-left: 2px;
+}
+QLabel#aboutLabel {
+    color: #505060;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.45;
+    padding: 4px 2px 8px 2px;
 }
 QSlider::groove:horizontal {
     background: #d8d8e0;
@@ -379,9 +401,15 @@ class SettingsPage(QWidget):
     home_requested = pyqtSignal()
     categories_requested = pyqtSignal()
     status_colors_changed = pyqtSignal(dict)
+    muffling_strength_changed = pyqtSignal(float)
+    probes_enabled_changed = pyqtSignal(bool)
+    probe_requested = pyqtSignal()
+    export_focus_data_requested = pyqtSignal()
+    delete_focus_data_requested = pyqtSignal()
 
     DEFAULT_WAVEFORM_SMOOTHNESS = 0.35
     DEFAULT_AURORA_BRIGHTNESS_GAIN = 1.5
+    DEFAULT_MUFFLING_STRENGTH = 0.65
 
     def __init__(
         self,
@@ -392,6 +420,7 @@ class SettingsPage(QWidget):
         main_theme: str = "unknown",
         waveform_smoothness: float = DEFAULT_WAVEFORM_SMOOTHNESS,
         aurora_brightness_gain: float = DEFAULT_AURORA_BRIGHTNESS_GAIN,
+        muffling_strength: float = DEFAULT_MUFFLING_STRENGTH,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("settingsPage")
@@ -419,6 +448,14 @@ class SettingsPage(QWidget):
         content = QVBoxLayout(scroll_content)
         content.setContentsMargins(0, 8, 0, 8)
         content.setSpacing(12)
+
+        # -- Section: About --
+        content.addWidget(self._section_label("About"))
+        about = QLabel(DESCRIPTION_TEXT)
+        about.setObjectName("aboutLabel")
+        about.setWordWrap(True)
+        about.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        content.addWidget(about)
 
         # -- Section: Appearance --
         content.addWidget(self._section_label("Appearance"))
@@ -454,6 +491,20 @@ class SettingsPage(QWidget):
         self._volume_slider, self._volume_label = self._build_slider_row(
             content, "Master Volume", int(master_volume * 100), 0, 100, "{:d}%"
         )
+        self._muffle_slider, self._muffle_label = self._build_slider_row(
+            content,
+            "Muffling Strength",
+            int(round(muffling_strength * 100)),
+            0,
+            100,
+            "{:d}%",
+        )
+        muffle_hint = QLabel(
+            "How strongly low focus muffles music (low-pass). Breaks use a stronger muffle."
+        )
+        muffle_hint.setObjectName("hintLabel")
+        muffle_hint.setWordWrap(True)
+        content.addWidget(muffle_hint)
 
         # -- Section: Cognitive --
         content.addWidget(self._section_label("Cognitive"))
@@ -468,11 +519,20 @@ class SettingsPage(QWidget):
         hint = QLabel("Higher  →  more easily detected as distracted")
         hint.setObjectName("hintLabel")
         content.addWidget(hint)
+        session_hint = QLabel(
+            "Start Pomodoro and Calibrate Focus from the home page. "
+            "The first 5 minutes of each Pomodoro work block also calibrate that session."
+        )
+        session_hint.setObjectName("hintLabel")
+        session_hint.setWordWrap(True)
+        content.addWidget(session_hint)
+        self._build_focus_session_rows(content)
 
         # -- Section: Personalization --
         content.addWidget(self._section_label("Personalization"))
         self._build_theme_row(content, main_theme)
         self._build_categories_row(content)
+        self._build_focus_data_rows(content)
 
         # -- Section: Color Themes --
         content.addWidget(self._section_label("Status Colors"))
@@ -572,6 +632,8 @@ class SettingsPage(QWidget):
                 self.waveform_smoothness_changed.emit(val / 100.0)
             elif getattr(self, "_aurora_slider", None) is slider:
                 self.aurora_brightness_gain_changed.emit(val / 100.0)
+            elif getattr(self, "_muffle_slider", None) is slider:
+                self.muffling_strength_changed.emit(val / 100.0)
 
         slider.valueChanged.connect(_on_change)
 
@@ -602,6 +664,54 @@ class SettingsPage(QWidget):
         row.addWidget(self._theme_combo)
         row.addStretch()
         container.addLayout(row)
+
+    def _build_focus_session_rows(self, container: QVBoxLayout) -> None:
+        probe_row = QHBoxLayout()
+        probe_row.setSpacing(8)
+        self._probe_btn = QPushButton("Run Attention Probe")
+        self._probe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._probe_btn.clicked.connect(self.probe_requested.emit)
+        probe_row.addWidget(self._probe_btn)
+        probe_label = QLabel("Attention Probes")
+        probe_label.setObjectName("settingLabel")
+        probe_row.addWidget(probe_label)
+        self._probes_toggle = QPushButton("ON")
+        self._probes_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._probes_toggle.setFixedWidth(64)
+        self._probes_enabled = True
+        self._probes_toggle.clicked.connect(self._on_probes_toggled)
+        probe_row.addWidget(self._probes_toggle)
+        probe_row.addStretch()
+        container.addLayout(probe_row)
+        privacy_hint = QLabel(
+            "Focus data is local-only (categories & aggregates). No titles, keystrokes, "
+            "clipboard, mic, or camera are stored."
+        )
+        privacy_hint.setObjectName("hintLabel")
+        privacy_hint.setWordWrap(True)
+        container.addWidget(privacy_hint)
+
+    def _build_focus_data_rows(self, container: QVBoxLayout) -> None:
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        export_btn = QPushButton("Export Focus Data")
+        export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        export_btn.clicked.connect(self.export_focus_data_requested.emit)
+        row.addWidget(export_btn)
+        delete_btn = QPushButton("Delete Focus Data")
+        delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        delete_btn.clicked.connect(self.delete_focus_data_requested.emit)
+        row.addWidget(delete_btn)
+        row.addStretch()
+        container.addLayout(row)
+
+    def _on_probes_toggled(self) -> None:
+        self._probes_enabled = not self._probes_enabled
+        self._probes_toggle.setText("ON" if self._probes_enabled else "OFF")
+        self._probes_toggle.setStyleSheet(
+            TOGGLE_ON_STYLE if self._probes_enabled else TOGGLE_OFF_STYLE
+        )
+        self.probes_enabled_changed.emit(self._probes_enabled)
 
     def _build_categories_row(self, container: QVBoxLayout) -> None:
         row = QHBoxLayout()
@@ -708,6 +818,14 @@ class SettingsPage(QWidget):
         self._home_btn.setStyleSheet(ACTION_BTN_STYLE if dark else ACTION_BTN_LIGHT_STYLE)
         self._reset_btn.setStyleSheet(ACTION_BTN_STYLE if dark else ACTION_BTN_LIGHT_STYLE)
         self._quit_btn.setStyleSheet(QUIT_BTN_STYLE if dark else QUIT_BTN_LIGHT_STYLE)
+        btn_style = ACTION_BTN_STYLE if dark else ACTION_BTN_LIGHT_STYLE
+        probe_btn = getattr(self, "_probe_btn", None)
+        if probe_btn is not None:
+            probe_btn.setStyleSheet(btn_style)
+        if getattr(self, "_probes_toggle", None) is not None:
+            self._probes_toggle.setStyleSheet(
+                TOGGLE_ON_STYLE if self._probes_enabled else TOGGLE_OFF_STYLE
+            )
         # Colour-picker buttons follow theme
         for _swatch, pick_btn in self._color_widgets.values():
             pick_btn.setStyleSheet(COLOR_PICKER_BTN_STYLE if dark else LIGHT_COLOR_PICKER_BTN_STYLE)
@@ -722,6 +840,20 @@ class SettingsPage(QWidget):
         self._volume_slider.setValue(int(round(value * 100)))
         self._volume_slider.blockSignals(False)
         self._volume_label.setText(f"{int(round(value * 100))}%")
+
+    def set_muffling_strength(self, value: float) -> None:
+        pct = int(round(max(0.0, min(1.0, value)) * 100))
+        self._muffle_slider.blockSignals(True)
+        self._muffle_slider.setValue(pct)
+        self._muffle_slider.blockSignals(False)
+        self._muffle_label.setText(f"{pct}%")
+
+    def set_probes_enabled(self, enabled: bool) -> None:
+        self._probes_enabled = bool(enabled)
+        self._probes_toggle.setText("ON" if self._probes_enabled else "OFF")
+        self._probes_toggle.setStyleSheet(
+            TOGGLE_ON_STYLE if self._probes_enabled else TOGGLE_OFF_STYLE
+        )
 
     def set_threshold(self, value: float) -> None:
         """Set concentration threshold (0.2–2.0) without emitting signal."""

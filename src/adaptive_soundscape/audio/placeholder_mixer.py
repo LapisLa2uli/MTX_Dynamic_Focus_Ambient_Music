@@ -38,7 +38,7 @@ class PlaceholderMixer:
         self.prefer_mp3 = prefer_mp3
         self._profile_id = "unknown"
         self._target_profile_id = "unknown"
-        self._params = AudioParameters(0.5, 0.4, 0.55)
+        self._params = AudioParameters(0.5, 0.4, 0.55, 0.0)
         self._target_params = self._params
         self._crossfade_remaining = 0
         self._crossfade_total = 1
@@ -47,6 +47,7 @@ class PlaceholderMixer:
         self._positions: dict[str, int] = {}
         self._profile_track: dict[str, Path] = {}
         self._track_cache: dict[str, np.ndarray] = {}
+        self._muffle_z = 0.0
         self._lock = threading.Lock()
         self._playing = False
         self._preload_thread: threading.Thread | None = None
@@ -415,7 +416,26 @@ class PlaceholderMixer:
         shaped = block * energy
         shaped = shaped * (0.85 + brightness * 0.3)
         shaped = shaped * (0.9 + warmth * 0.15)
+        muffling = max(0.0, min(1.0, float(getattr(params, "muffling", 0.0))))
+        if muffling > 1e-4:
+            shaped = self._apply_muffle_lpf(shaped, muffling)
+        else:
+            self._muffle_z = float(shaped[-1]) if len(shaped) else self._muffle_z
         return np.clip(shaped, -1.0, 1.0)
+
+    def _apply_muffle_lpf(self, block: np.ndarray, muffling: float) -> np.ndarray:
+        """Stateful one-pole low-pass; cutoff falls as muffling rises (~8 kHz → ~400 Hz)."""
+        cutoff = 8000.0 * (1.0 - muffling) + 400.0 * muffling
+        # One-pole coefficient: alpha ≈ 1 - exp(-2π fc / fs)
+        alpha = 1.0 - math.exp(-2.0 * math.pi * cutoff / float(self.sample_rate))
+        alpha = max(1e-4, min(1.0, alpha))
+        out = np.empty_like(block, dtype=np.float32)
+        z = float(self._muffle_z)
+        for i, sample in enumerate(block):
+            z = z + alpha * (float(sample) - z)
+            out[i] = z
+        self._muffle_z = z
+        return out
 
     @staticmethod
     def _equal_power_weights(t: float) -> tuple[float, float]:

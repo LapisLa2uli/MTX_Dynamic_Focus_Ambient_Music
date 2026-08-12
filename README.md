@@ -147,7 +147,7 @@ Music adapts in two nested levels:
 2. **Default (layered):** compatible stem loops (`pad`, `harmony`, `melody_a`, `rhythm`, optional `melody_b` / `texture` / `recovery`) play together. `MusicDirector` maps `focus_score` → **per-layer volumes** (with slew + energy limiting).
 3. **Fallback (discrete):** if a song has fewer than two base layers, the older calm / focus / deep_focus **file switching** path is used.
 
-The authoritative concentration signal is `FocusEstimator.focus_score` ∈ `[0, 1]`. UI Music State labels still use hysteresis bands; in layered mode those labels do not swap whole files.
+The authoritative concentration signal is the **Focus Likelihood Index (FLI)** mapped to `focus_score` ∈ `[0, 1]` (`focus_index = max(measured_weighted_sum, calibration_pattern_similarity)`). See [`src/adaptive_soundscape/focus_index/README.md`](src/adaptive_soundscape/focus_index/README.md). UI Music State labels still use hysteresis bands; in layered mode those labels do not swap whole files. Low focus also drives optional **music muffling** (low-pass) scaled by Settings → Muffling Strength.
 
 ### Thresholds & mix (`config/default.yaml` → `adaptive_music`)
 
@@ -411,3 +411,4 @@ Report sources: [`paper/main.tex`](paper/main.tex). Update §2.2 when changing a
 - Input tracking records **event counts only**, never keystroke text
 - Window titles and process names can be disabled in the UI
 - Activity logging is **disabled by default**
+- FLI stores only **app categories**, durations, switches, idle intervals, probe aggregates, and calibration pattern vectors in `config/focus_index.sqlite` (gitignored; 7-day retention). Export/delete from Settings. No titles, URLs, key contents, clipboard, screenshots, mic, or camera.

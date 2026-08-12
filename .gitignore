@@ -2,6 +2,8 @@ Godot_v4.6.3-stable_win64.exe
 dist/
 config/user_context_mappings.json
 config/user_ui_settings.json
+config/focus_index.sqlite
+config/focus_index.sqlite-*
 *.pyc
 __pycache__/
 services/musicgen_api/model_cache/

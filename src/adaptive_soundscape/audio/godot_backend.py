@@ -156,6 +156,7 @@ class GodotAudioBackend:
                 payload.update(
                     {
                         "brightness": params.brightness,
+                        "muffling": float(getattr(params, "muffling", 0.0)),
                         "energy": params.energy,
                         "warmth": params.warmth,
                     }
@@ -185,6 +186,7 @@ class GodotAudioBackend:
                     "brightness": params.brightness,
                     "energy": params.energy,
                     "warmth": params.warmth,
+                    "muffling": float(getattr(params, "muffling", 0.0)),
                 }
             )
         self._send(payload)
@@ -437,4 +439,5 @@ def _params_payload(op: str, params: AudioParameters) -> dict:
         "brightness": params.brightness,
         "energy": params.energy,
         "warmth": params.warmth,
+        "muffling": float(getattr(params, "muffling", 0.0)),
     }

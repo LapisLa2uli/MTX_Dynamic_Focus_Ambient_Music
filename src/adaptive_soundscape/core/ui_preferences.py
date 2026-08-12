@@ -22,6 +22,8 @@ class UiPreferences:
     waveform_smoothness: float = 0.35
     # How strongly rising focus brightens the aurora lights (0–3).
     aurora_brightness_gain: float = 1.5
+    muffling_strength: float = 0.65
+    probes_enabled: bool = True
     status_colors: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -30,6 +32,8 @@ class UiPreferences:
             "main_theme": str(self.main_theme),
             "waveform_smoothness": float(self.waveform_smoothness),
             "aurora_brightness_gain": float(self.aurora_brightness_gain),
+            "muffling_strength": float(self.muffling_strength),
+            "probes_enabled": bool(self.probes_enabled),
             "status_colors": dict(self.status_colors),
         }
 
@@ -54,6 +58,15 @@ class UiPreferences:
                 )
             except (TypeError, ValueError):
                 pass
+        if "muffling_strength" in data:
+            try:
+                prefs.muffling_strength = max(
+                    0.0, min(1.0, float(data["muffling_strength"]))
+                )
+            except (TypeError, ValueError):
+                pass
+        if "probes_enabled" in data:
+            prefs.probes_enabled = bool(data["probes_enabled"])
         colors = data.get("status_colors")
         if isinstance(colors, dict):
             prefs.status_colors = {
