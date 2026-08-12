@@ -829,7 +829,8 @@ class HomePage(QWidget):
 
         # ── Top area: QStackedWidget (motto ↔ focus bar + theme) ──
         self._top_stack = QStackedWidget()
-        self._top_stack.setFixedHeight(80)
+        self._top_stack.setMinimumHeight(72)
+        self._top_stack.setMaximumHeight(160)
         self._top_stack.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self._top_stack.setStyleSheet("background: transparent;")
 
@@ -914,7 +915,8 @@ class HomePage(QWidget):
         self._pomo_btn = QPushButton(tr("home_pomodoro_idle"))
         self._pomo_btn.setObjectName("pomoBtn")
         self._pomo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._pomo_btn.setFixedWidth(168)
+        self._pomo_btn.setMinimumWidth(140)
+        self._pomo_btn.setMaximumWidth(220)
         self._pomo_btn.setProperty("active", False)
         self._pomo_btn.clicked.connect(self._on_pomodoro_clicked)
         session_row.addWidget(self._pomo_btn)
@@ -922,7 +924,8 @@ class HomePage(QWidget):
         self._calib_btn = QPushButton(tr("home_calibrate_idle"))
         self._calib_btn.setObjectName("calibBtn")
         self._calib_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._calib_btn.setFixedWidth(168)
+        self._calib_btn.setMinimumWidth(140)
+        self._calib_btn.setMaximumWidth(220)
         self._calib_btn.setProperty("active", False)
         self._calib_btn.setToolTip(tr("home_calibrate_tip"))
         self._calib_btn.clicked.connect(self._on_calibrate_clicked)
@@ -943,8 +946,8 @@ class HomePage(QWidget):
         w = max(float(self.width()), 1.0)
         h = max(float(self.height()), 1.0)
         raw = min(w / self._REF_W, h / self._REF_H)
-        # Keep readable at small sizes; grow on fullscreen / large monitors
-        return max(0.88, min(2.4, raw))
+        # Cap growth so fullscreen keeps air around the glass disc.
+        return max(0.82, min(1.55, raw))
 
     def _apply_layout_scale(self, *, force: bool = False) -> None:
         scale = self._compute_layout_scale()
@@ -952,23 +955,29 @@ class HomePage(QWidget):
             return
         self._layout_scale = scale
 
-        m = max(16, int(round(32 * scale)))
+        m = max(16, int(round(28 * scale)))
         self._root.setContentsMargins(m, m, m, m)
         self._root.setSpacing(max(8, int(round(12 * scale))))
         self._status_layout.setSpacing(max(4, int(round(8 * scale))))
 
-        top_h = max(64, int(round(80 * scale)))
-        # Running status: focus bar + theme + music detail
-        if self._running:
-            top_h = max(top_h, int(round(120 * scale)))
-        self._top_stack.setFixedHeight(top_h)
+        # Soft height bounds — let status text breathe without a hard clip box.
+        top_min = max(64, int(round(72 * scale)))
+        top_max = max(top_min + 24, int(round(140 * scale)))
+        self._top_stack.setMinimumHeight(top_min)
+        self._top_stack.setMaximumHeight(top_max)
 
-        btn = max(160, int(round(self._BTN_DESIGN * scale)))
+        # Cap ring by leftover vertical space so session buttons never get crushed.
+        session_h = 48
+        classify_h = 40 if self._classify_btn.isVisible() else 0
+        margins = 2 * m + 80
+        leftover = max(140.0, float(self.height()) - top_max - session_h - classify_h - margins)
+        btn = int(round(min(self._BTN_DESIGN * scale, leftover)))
+        btn = max(150, min(280, btn))
         self._eq_ring.setFixedSize(btn, btn)
 
-        self._focus_bar.setFixedWidth(max(160, int(round(240 * scale))))
-        self._classify_btn.setMinimumWidth(max(200, int(round(210 * scale))))
-        self._classify_btn.setMinimumHeight(max(32, int(round(34 * scale))))
+        self._focus_bar.setFixedWidth(max(160, int(round(220 * scale))))
+        self._classify_btn.setMinimumWidth(max(180, int(round(200 * scale))))
+        self._classify_btn.setMinimumHeight(max(30, int(round(32 * scale))))
 
         self.setStyleSheet(_home_stylesheet(dark=self._dark, scale=scale))
         self._eq_ring.update()

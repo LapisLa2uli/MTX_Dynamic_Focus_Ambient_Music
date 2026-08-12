@@ -746,10 +746,14 @@ class SettingsPage(QWidget):
         layer_hint.setWordWrap(True)
         container.addWidget(layer_hint)
 
+        self._layer_sliders_host = QWidget()
+        layer_host_layout = QVBoxLayout(self._layer_sliders_host)
+        layer_host_layout.setContentsMargins(0, 0, 0, 0)
+        layer_host_layout.setSpacing(8)
         for layer_id in LAYER_IDS:
             title = self.LAYER_LABELS.get(layer_id, layer_id)
             slider, value_label = self._build_plain_slider_row(
-                container,
+                layer_host_layout,
                 title,
                 int(round(self._debug_layer_gains[layer_id] * 100)),
                 0,
@@ -760,6 +764,8 @@ class SettingsPage(QWidget):
             slider.setEnabled(False)
             self._layer_sliders[layer_id] = slider
             self._layer_value_labels[layer_id] = value_label
+        self._layer_sliders_host.setVisible(False)
+        container.addWidget(self._layer_sliders_host)
 
     def _build_plain_slider_row(
         self,
@@ -813,6 +819,7 @@ class SettingsPage(QWidget):
         on = self._debug_layer_enabled
         self._debug_layer_toggle.setText("ON" if on else "OFF")
         self._debug_layer_toggle.setStyleSheet(TOGGLE_ON_STYLE if on else TOGGLE_OFF_STYLE)
+        self._layer_sliders_host.setVisible(on)
         for slider in self._layer_sliders.values():
             slider.setEnabled(on)
         self.debug_layer_override_changed.emit(on)

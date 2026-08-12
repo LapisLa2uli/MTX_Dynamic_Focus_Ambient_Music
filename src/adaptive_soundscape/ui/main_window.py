@@ -28,7 +28,7 @@ from adaptive_soundscape.ui.inference_toast import InferenceToast
 from adaptive_soundscape.ui.settings_page import SettingsPage
 from adaptive_soundscape.ui.upload_page import UploadPage
 
-SIDEBAR_WIDTH = 190
+SIDEBAR_WIDTH = 168
 
 DARK_STYLE = """
 QMainWindow {

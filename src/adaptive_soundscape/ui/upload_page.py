@@ -283,7 +283,7 @@ class _UploadZone(QFrame):
         super().__init__(parent)
         self.setObjectName("uploadZone")
         self.setAcceptDrops(True)
-        self.setMinimumHeight(200)
+        self.setMinimumHeight(140)
         self.setStyleSheet(UPLOAD_ZONE_STYLE)
         self._staged: Path | None = None
 
@@ -409,7 +409,7 @@ class _ProfilePanel(QWidget):
         side = QVBoxLayout()
         side.setSpacing(8)
         self._swap_btn = QPushButton(tr("swap_btn"))
-        self._swap_btn.setFixedHeight(60)
+        self._swap_btn.setFixedHeight(48)
         self._swap_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._swap_btn.setEnabled(False)
         self._swap_btn.setStyleSheet(SWAP_DISABLED)
