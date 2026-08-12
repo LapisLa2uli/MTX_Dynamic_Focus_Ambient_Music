@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -45,17 +45,7 @@ from adaptive_soundscape.audio.musicgen_client import MusicGenClient
 from adaptive_soundscape.audio.separate_stems import separate_and_install_stems
 from adaptive_soundscape.audio.sidecar_lifecycle import SidecarLifecycle
 from adaptive_soundscape.core.config import load_settings
-
-# Profile → emoji icon (mirrors upload_page.PROFILE_ICONS)
-PROFILE_ICONS: dict[str, str] = {
-    "programming": "\U0001f5a5\ufe0f",
-    "team_workflow": "\U0001f465",
-    "reading_writing": "\U0001f4d6",
-    "scientific": "\U0001f52c",
-    "creative_design": "\U0001f3a8",
-    "distraction": "\u26a0\ufe0f",
-    "unknown": "\u25ef",
-}
+from adaptive_soundscape.ui.icons import build_profile_icons
 
 # ── Stylesheets ──────────────────────────────────────────────────────
 
@@ -986,6 +976,10 @@ class AlbumManagerDialog(QDialog):
         self.assets_dir = assets_dir
         self._dark = True
         self._tab_index = 0
+        self._tab_icons = {
+            "dark": build_profile_icons("#a8a8bc"),
+            "light": build_profile_icons("#56566e"),
+        }
         self.setWindowTitle("Manage Scenario Albums")
         self.setMinimumSize(700, 560)
         self.setObjectName("advancedDialog")
@@ -1017,8 +1011,8 @@ class AlbumManagerDialog(QDialog):
         self._tab_buttons: list[QPushButton] = []
         self._tab_ids: dict[int, str] = {}
         for idx, profile_id in enumerate(PROFILE_IDS):
-            icon = PROFILE_ICONS.get(profile_id, "\u25ef")
-            btn = QPushButton(icon)
+            btn = QPushButton()
+            btn.setIconSize(QSize(22, 22))
             btn.setToolTip(display_name_for_profile(profile_id))
             btn.setFixedWidth(44)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1026,6 +1020,7 @@ class AlbumManagerDialog(QDialog):
             tab_row.addWidget(btn)
             self._tab_buttons.append(btn)
             self._tab_ids[idx] = profile_id
+        self._apply_tab_icons()
 
         tab_row.addStretch()
         root.addLayout(tab_row)
@@ -1088,10 +1083,16 @@ class AlbumManagerDialog(QDialog):
         self._dirty = True
         self.albums_changed.emit()
 
+    def _apply_tab_icons(self) -> None:
+        icons = self._tab_icons["dark" if self._dark else "light"]
+        for btn, profile_id in zip(self._tab_buttons, self._tab_ids.values()):
+            btn.setIcon(icons[profile_id])
+
     def set_dark_mode(self, enabled: bool) -> None:
         """Re-apply dark / light stylesheet and tab button styles."""
         self._dark = enabled
         self.setStyleSheet(EDITOR_STYLE if enabled else LIGHT_EDITOR_STYLE)
+        self._apply_tab_icons()
         self._switch_tab(self._tab_index)
 
     @classmethod

@@ -96,6 +96,12 @@ class AdaptiveMusicConfigModel(BaseModel):
     energy_limit: float = 2.4
     recovery_peak: float = 0.55
     layer_mix: dict[str, list[list[float]]] = Field(default_factory=dict)
+    phrase_boundary_enabled: bool = True
+    phrase_boundary_threshold: float = 0.40
+    phrase_search_seconds: float = 10.0
+    phrase_fadeout_seconds: float = 3.0
+    phrase_gap_seconds: float = 0.5
+    fallback_crossfade_seconds: float = 3.0
 
 
 class GenerativeLayersConfig(BaseModel):

@@ -25,6 +25,7 @@ class UiPreferences:
     muffling_strength: float = 0.65
     probes_enabled: bool = True
     status_colors: dict[str, str] = field(default_factory=dict)
+    language: str = "en"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -35,6 +36,7 @@ class UiPreferences:
             "muffling_strength": float(self.muffling_strength),
             "probes_enabled": bool(self.probes_enabled),
             "status_colors": dict(self.status_colors),
+            "language": str(self.language),
         }
 
     @classmethod
@@ -67,6 +69,8 @@ class UiPreferences:
                 pass
         if "probes_enabled" in data:
             prefs.probes_enabled = bool(data["probes_enabled"])
+        if "language" in data and isinstance(data["language"], str):
+            prefs.language = data["language"]
         colors = data.get("status_colors")
         if isinstance(colors, dict):
             prefs.status_colors = {

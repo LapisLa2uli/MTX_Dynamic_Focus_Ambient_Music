@@ -26,6 +26,7 @@ from adaptive_soundscape.context.user_mappings import (
 )
 from adaptive_soundscape.core.bus import EventBus
 from adaptive_soundscape.core.config import Settings, load_settings, resolve_assets_dir
+from adaptive_soundscape.core.i18n import get_language as i18n_get_language
 from adaptive_soundscape.core.ui_preferences import (
     UiPreferences,
     load_ui_preferences,
@@ -202,7 +203,7 @@ class AdaptiveSoundscapeApp:
         sp.debug_focus_override_changed.connect(self._on_debug_focus_override)
         sp.debug_layer_override_changed.connect(self._on_debug_layer_override)
         sp.debug_layer_gain_changed.connect(self._on_debug_layer_gain)
-
+        sp.language_changed.connect(self._on_language_changed)
         self._ui_prefs = load_ui_preferences()
         self._main_theme = self._ui_prefs.main_theme or "unknown"
         self._status_colors = dict(DEFAULT_STATUS_COLORS)
@@ -212,6 +213,7 @@ class AdaptiveSoundscapeApp:
         self._aurora_brightness_gain = float(self._ui_prefs.aurora_brightness_gain)
         self._muffling_strength = float(self._ui_prefs.muffling_strength)
         self._probes_enabled = bool(self._ui_prefs.probes_enabled)
+        self._language = self._ui_prefs.language or i18n_get_language()
         self._apply_ui_preferences()
 
         qt_app = QApplication.instance()
@@ -261,6 +263,7 @@ class AdaptiveSoundscapeApp:
                 muffling_strength=self._muffling_strength,
                 probes_enabled=self._probes_enabled,
                 status_colors=dict(self._status_colors),
+                language=self._language,
             )
             save_ui_preferences(prefs)
             self._ui_prefs = prefs
@@ -279,6 +282,7 @@ class AdaptiveSoundscapeApp:
         sp.set_probes_enabled(self._probes_enabled)
         self.window._set_dark_mode(bool(self._ui_prefs.dark_mode))
         sp.set_dark_mode(bool(self._ui_prefs.dark_mode))
+        self.window.set_language(self._language)
 
     def _refresh_eq_bands(self) -> None:
         if not self._audio_running:
@@ -434,6 +438,12 @@ class AdaptiveSoundscapeApp:
         del enabled
         self._persist_user_state()
 
+    def _on_language_changed(self, code: str) -> None:
+        """Persist the new UI language and apply it across the window."""
+        self._language = str(code)
+        self.window.set_language(self._language)
+        self._persist_user_state()
+
     def _on_reset_settings(self) -> None:
         """Reset all settings to factory defaults."""
         defaults = Settings()
@@ -447,6 +457,8 @@ class AdaptiveSoundscapeApp:
         self._aurora_brightness_gain = SettingsPage.DEFAULT_AURORA_BRIGHTNESS_GAIN
         self._muffling_strength = SettingsPage.DEFAULT_MUFFLING_STRENGTH
         self._probes_enabled = True
+        self._language = "en"
+        self.window.set_language("en")
         self.window.settings_page.set_volume(defaults.audio.master_volume)
         self.window.settings_page.set_threshold(defaults.cognitive.sensitivity)
         self.window.settings_page.set_waveform_smoothness(

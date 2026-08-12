@@ -64,6 +64,27 @@ class PlaceholderMixer:
         self._stem_pack_fade_remaining = 0
         self._stem_pack_fade_total = 1
         self._stem_pack_paths: dict[str, Path] = {}
+        # Phrase-boundary switch state (wait → fadeout → gap → new track).
+        self._switch_phase = "idle"  # idle | wait | fadeout | gap
+        self._switch_wait_remaining = 0
+        self._switch_fade_total = 1
+        self._switch_fade_remaining = 0
+        self._switch_gap_remaining = 0
+        self._switch_target_key: str | None = None
+        self._switch_target_params: AudioParameters | None = None
+        # Phrase-boundary switch for stem packs (wait → fadeout → gap → new pack).
+        self._stem_switch_phase = "idle"  # idle | wait | fadeout | gap
+        self._stem_switch_wait_remaining = 0
+        self._stem_switch_fade_total = 1
+        self._stem_switch_fade_remaining = 0
+        self._stem_switch_gap_remaining = 0
+        self._stem_switch_layers: dict[str, np.ndarray] = {}
+        self._stem_switch_resolved: dict[str, Path] = {}
+        # New-song entrance ramp after a phrase switch (slightly weaker start).
+        self._switch_fade_in_total = 1
+        self._switch_fade_in_remaining = 0
+        self._stem_switch_fade_in_total = 1
+        self._stem_switch_fade_in_remaining = 0
         # Live EQ / level for HomePage ring.
         self._current_level: float = 0.0
         self._n_bands = 48
@@ -101,6 +122,24 @@ class PlaceholderMixer:
             self._stem_pack_paths.clear()
             self._stem_pack_fade_remaining = 0
             self._stem_mode = False
+            self._reset_phrase_switch()
+
+    def _reset_phrase_switch(self) -> None:
+        """Cancel any pending phrase-boundary switch (caller holds the lock)."""
+        self._switch_phase = "idle"
+        self._switch_wait_remaining = 0
+        self._switch_fade_remaining = 0
+        self._switch_gap_remaining = 0
+        self._switch_target_key = None
+        self._switch_target_params = None
+        self._stem_switch_phase = "idle"
+        self._stem_switch_wait_remaining = 0
+        self._stem_switch_fade_remaining = 0
+        self._stem_switch_gap_remaining = 0
+        self._stem_switch_layers = {}
+        self._stem_switch_resolved = {}
+        self._switch_fade_in_remaining = 0
+        self._stem_switch_fade_in_remaining = 0
 
     def _edge_guard(self, length: int) -> int:
         """Skip baked loop-edge fades so incoming stems are not silent."""
@@ -226,6 +265,8 @@ class PlaceholderMixer:
 
     def stop(self) -> None:
         self._playing = False
+        with self._lock:
+            self._reset_phrase_switch()
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()
@@ -234,6 +275,7 @@ class PlaceholderMixer:
     def set_profile(self, profile_id: str) -> None:
         self._assign_random_track(profile_id, force_new=True)
         with self._lock:
+            self._reset_phrase_switch()
             self._profile_id = profile_id
             self._target_profile_id = profile_id
 
@@ -268,6 +310,7 @@ class PlaceholderMixer:
             logger.warning("load_stem_pack: no layers loaded")
             return
         with self._lock:
+            self._reset_phrase_switch()
             # Same pack already playing — keep playheads; avoid dual-offset overlap.
             if (
                 self._stem_mode
@@ -305,6 +348,87 @@ class PlaceholderMixer:
             for lid in loaded:
                 self._stem_gains.setdefault(lid, 0.0)
                 self._stem_gain_targets.setdefault(lid, 0.5)
+
+    def fade_out_and_switch_stems(
+        self,
+        layers: dict[str, Path],
+        *,
+        wait_seconds: float,
+        fadeout_seconds: float = 3.0,
+        gap_seconds: float = 0.5,
+        fadein_seconds: float = 2.0,
+    ) -> None:
+        """Wait until the current phrase ends, fade the stem pack out, then swap.
+
+        Mirrors ``fade_out_and_switch`` but targets the layered stem pack: the
+        current mix keeps playing untouched during ``wait_seconds``, fades to
+        silence over ``fadeout_seconds``, holds a short gap, then the decoded
+        new pack takes over, entering at a slightly reduced level and ramping
+        up over ``fadein_seconds`` before slewing to the gains configured
+        afterwards by ``set_layer_gains``.
+        """
+        loaded: dict[str, np.ndarray] = {}
+        resolved: dict[str, Path] = {}
+        for layer_id, path in layers.items():
+            if not path.is_file():
+                logger.warning(
+                    "fade_out_and_switch_stems: missing %s → %s", layer_id, path
+                )
+                continue
+            data = self._load_track(path)
+            if data is None:
+                logger.warning(
+                    "fade_out_and_switch_stems: decode failed %s", path
+                )
+                continue
+            loaded[layer_id] = data
+            resolved[layer_id] = path.resolve()
+        if not loaded:
+            logger.warning("fade_out_and_switch_stems: no layers loaded")
+            return
+        with self._lock:
+            self._reset_phrase_switch()
+            if not self._stem_mode or not self._stem_buffers:
+                # No pack playing yet — take over immediately.
+                self._stem_mode = True
+                self._stem_buffers = loaded
+                self._stem_positions = {
+                    lid: self._edge_guard(len(buf)) for lid, buf in loaded.items()
+                }
+                self._stem_pack_paths = resolved
+                for lid in loaded:
+                    self._stem_gains.setdefault(lid, 0.5)
+                    self._stem_gain_targets.setdefault(lid, self._stem_gains[lid])
+                self._profile_id = "__stem__"
+                self._target_profile_id = "__stem__"
+                return
+            if self._stem_pack_paths == resolved:
+                # Same pack already playing — keep playheads, just re-arm gains.
+                for lid in loaded:
+                    self._stem_gains.setdefault(lid, 0.0)
+                    self._stem_gain_targets.setdefault(lid, self._stem_gains[lid])
+                return
+            # Cancel any in-progress pack crossfade so we own the fade.
+            self._stem_target_buffers = {}
+            self._stem_target_positions = {}
+            self._stem_pack_fade_remaining = 0
+            self._stem_switch_phase = "wait"
+            self._stem_switch_wait_remaining = max(
+                int(wait_seconds * self.sample_rate), 1
+            )
+            self._stem_switch_fade_total = max(
+                int(fadeout_seconds * self.sample_rate), 1
+            )
+            self._stem_switch_fade_remaining = self._stem_switch_fade_total
+            self._stem_switch_gap_remaining = max(
+                int(gap_seconds * self.sample_rate), 1
+            )
+            self._stem_switch_layers = loaded
+            self._stem_switch_resolved = resolved
+            self._stem_switch_fade_in_remaining = 0
+            self._stem_switch_fade_in_total = max(
+                int(fadein_seconds * self.sample_rate), 1
+            )
 
     def set_layer_gains(
         self,
@@ -346,6 +470,7 @@ class PlaceholderMixer:
         key = str(path.resolve())
         with self._lock:
             # Discrete intensity path takes over from stem mixing.
+            self._reset_phrase_switch()
             self._stem_mode = False
             self._stem_pack_fade_remaining = 0
             self._buffers[key] = data
@@ -371,6 +496,156 @@ class PlaceholderMixer:
             self._crossfade_remaining = self._crossfade_total
             if params is not None:
                 self._target_params = params
+
+    def playback_position(self) -> float | None:
+        """Loop-relative playhead of the current track, in seconds.
+
+        Works for both discrete tracks and layered stem packs (all layers are
+        phase-locked, so any layer's playhead is representative). Returns
+        ``None`` when nothing is playing.
+        """
+        with self._lock:
+            if not self._playing:
+                return None
+            if self._stem_mode:
+                if not self._stem_positions:
+                    return None
+                lid = next(iter(self._stem_positions))
+                pos = self._stem_positions[lid]
+                buf = self._stem_buffers.get(lid)
+            else:
+                key = self._profile_id
+                pos = self._positions.get(key, 0)
+                buf = self._buffers.get(key)
+        if buf is None or len(buf) == 0:
+            return None
+        return pos / float(self.sample_rate)
+
+    def fade_out_and_switch(
+        self,
+        path: Path,
+        *,
+        wait_seconds: float,
+        fadeout_seconds: float = 3.0,
+        gap_seconds: float = 0.5,
+        params: AudioParameters | None = None,
+        fadein_seconds: float = 2.0,
+    ) -> None:
+        """Keep playing the current track for *wait_seconds*, then fade it out
+        over *fadeout_seconds*, hold *gap_seconds* of silence, and start
+        *path* fresh from its loop head.
+
+        All timing is driven inside the audio callback — this method never
+        blocks the audio thread with sleeps.  The new track enters at a
+        slightly reduced level and ramps up over ``fadein_seconds``.
+        """
+        if not path.is_file():
+            logger.warning("fade_out_and_switch: missing file %s", path)
+            return
+        data = self._load_track(path)
+        if data is None:
+            logger.warning("fade_out_and_switch: failed to decode %s", path)
+            return
+        key = str(path.resolve())
+        with self._lock:
+            # Discrete path takes over from stem mixing.
+            self._stem_mode = False
+            self._stem_pack_fade_remaining = 0
+            self._buffers[key] = data
+            if key not in self._positions:
+                self._positions[key] = self._edge_guard(len(data))
+            self._profile_track[key] = path
+            current = self._profile_id
+            if (
+                current not in self._buffers
+                or not self._playing
+                or current == "__stem__"
+                or key == current
+            ):
+                # Nothing meaningful playing — switch immediately.
+                self._profile_id = key
+                self._target_profile_id = key
+                self._crossfade_remaining = 0
+                self._reset_phrase_switch()
+                if params is not None:
+                    self._params = params
+                    self._target_params = params
+                return
+            self._switch_target_key = key
+            self._switch_target_params = params
+            self._switch_wait_remaining = max(
+                int(round(wait_seconds * self.sample_rate)), 0
+            )
+            self._switch_fade_total = max(
+                int(round(fadeout_seconds * self.sample_rate)), 1
+            )
+            self._switch_fade_remaining = self._switch_fade_total
+            self._switch_gap_remaining = max(
+                int(round(gap_seconds * self.sample_rate)), 0
+            )
+            self._switch_phase = "wait"
+            self._target_profile_id = key
+            self._crossfade_remaining = 0
+            self._switch_fade_in_remaining = 0
+            self._switch_fade_in_total = max(
+                int(round(fadein_seconds * self.sample_rate)), 1
+            )
+
+    def _complete_phrase_switch(
+        self, key: str | None, params: AudioParameters | None
+    ) -> None:
+        """Start the pending track.  Caller must hold the mixer lock."""
+        if key is not None and key in self._buffers:
+            self._profile_id = key
+        self._target_profile_id = self._profile_id
+        self._crossfade_remaining = 0
+        if params is not None:
+            self._params = params
+            self._target_params = params
+        self._reset_phrase_switch()
+        # The new track enters slightly weaker and ramps up to full level.
+        self._switch_fade_in_remaining = self._switch_fade_in_total
+
+    def _render_phrase_switch(self, current: np.ndarray, frames: int) -> np.ndarray:
+        """Advance the wait → fadeout → gap → next-track state machine."""
+        with self._lock:
+            phase = self._switch_phase
+            wait_rem = self._switch_wait_remaining
+            fade_rem = self._switch_fade_remaining
+            fade_total = self._switch_fade_total
+            gap_rem = self._switch_gap_remaining
+            key = self._switch_target_key
+            target_params = self._switch_target_params
+        if phase == "wait":
+            wait_rem -= frames
+            with self._lock:
+                if wait_rem <= 0:
+                    self._switch_phase = "fadeout"
+                    self._switch_wait_remaining = 0
+                else:
+                    self._switch_wait_remaining = wait_rem
+            return current
+        if phase == "fadeout":
+            t = 1.0 - (fade_rem / max(fade_total, 1))
+            gain = self._fade_out_gain(t)  # pronounced fade-out for the old song
+            out = current * gain
+            fade_rem -= frames
+            with self._lock:
+                if fade_rem <= 0:
+                    self._switch_phase = "gap"
+                    self._switch_fade_remaining = 0
+                else:
+                    self._switch_fade_remaining = fade_rem
+            return out
+        if phase == "gap":
+            gap_rem -= frames
+            with self._lock:
+                if gap_rem <= 0:
+                    self._complete_phrase_switch(key, target_params)
+                else:
+                    self._switch_gap_remaining = gap_rem
+            return np.zeros(frames, dtype=np.float32)
+        return current
 
     def crossfade_to(
         self,
@@ -443,6 +718,18 @@ class PlaceholderMixer:
         t = max(0.0, min(1.0, t))
         return math.cos(t * math.pi * 0.5), math.sin(t * math.pi * 0.5)
 
+    @staticmethod
+    def _fade_out_gain(t: float) -> float:
+        """Pronounced fade-out curve (quadratic) — the old song clearly ducks."""
+        t = max(0.0, min(1.0, t))
+        return (1.0 - t) ** 2
+
+    @staticmethod
+    def _fade_in_gain(t: float) -> float:
+        """New-song entrance curve — slightly weaker start ramping to full."""
+        t = max(0.0, min(1.0, t))
+        return 0.7 + 0.3 * t
+
     def _read_stem_mix(
         self,
         buffers: dict[str, np.ndarray],
@@ -500,6 +787,71 @@ class PlaceholderMixer:
             self._stem_slew_remaining = rem
         return blended
 
+    def _advance_stem_switch(
+        self, current: np.ndarray, frames: int
+    ) -> np.ndarray:
+        """Advance the stem phrase-switch state machine (called from _render)."""
+        with self._lock:
+            phase = self._stem_switch_phase
+            wait_rem = self._stem_switch_wait_remaining
+            fade_rem = self._stem_switch_fade_remaining
+            fade_total = self._stem_switch_fade_total
+            gap_rem = self._stem_switch_gap_remaining
+        if phase == "wait":
+            wait_rem -= frames
+            with self._lock:
+                self._stem_switch_wait_remaining = max(wait_rem, 0)
+                if wait_rem <= 0:
+                    self._stem_switch_phase = "fadeout"
+            return current
+        if phase == "fadeout":
+            t = 1.0 - (fade_rem / max(fade_total, 1))
+            gain = self._fade_out_gain(t)  # pronounced fade-out for the old pack
+            fade_rem -= frames
+            with self._lock:
+                self._stem_switch_fade_remaining = max(fade_rem, 0)
+                if fade_rem <= 0:
+                    self._stem_switch_phase = "gap"
+            return current * gain
+        if phase == "gap":
+            gap_rem -= frames
+            if gap_rem <= 0:
+                self._complete_stem_switch()
+            else:
+                with self._lock:
+                    self._stem_switch_gap_remaining = gap_rem
+            return np.zeros(frames, dtype=np.float32)
+        return current
+
+    def _complete_stem_switch(self) -> None:
+        """Swap in the decoded new pack once the fade-out + gap finished."""
+        with self._lock:
+            loaded = self._stem_switch_layers
+            resolved = self._stem_switch_resolved
+            if loaded:
+                self._stem_buffers = loaded
+                self._stem_positions = {
+                    lid: self._edge_guard(len(buf)) for lid, buf in loaded.items()
+                }
+                self._stem_pack_paths = resolved
+                for lid in loaded:
+                    # The director arms the new pack's gain targets while the
+                    # old pack is still fading; take over at the target level
+                    # (set_layer_gains may have seeded gains at 0.0).
+                    self._stem_gains[lid] = self._stem_gain_targets.get(lid, 0.5)
+                    self._stem_gain_targets.setdefault(lid, self._stem_gains[lid])
+                self._stem_mode = True
+                self._profile_id = "__stem__"
+                self._target_profile_id = "__stem__"
+            self._stem_switch_phase = "idle"
+            self._stem_switch_wait_remaining = 0
+            self._stem_switch_fade_remaining = 0
+            self._stem_switch_gap_remaining = 0
+            self._stem_switch_layers = {}
+            self._stem_switch_resolved = {}
+            # The new pack enters slightly weaker and ramps up to full level.
+            self._stem_switch_fade_in_remaining = self._stem_switch_fade_in_total
+
     def _render(self, frames: int) -> np.ndarray:
         with self._lock:
             stem_mode = self._stem_mode
@@ -515,9 +867,17 @@ class PlaceholderMixer:
             target = self._target_profile_id
             fade_rem = self._crossfade_remaining
             fade_total = self._crossfade_total
+            switch_phase = self._switch_phase
 
         if stem_mode and stem_buffers:
-            gains = self._advance_stem_gains(frames)
+            with self._lock:
+                stem_switch_phase = self._stem_switch_phase
+            if stem_switch_phase == "idle":
+                gains = self._advance_stem_gains(frames)
+            else:
+                # Freeze per-layer gains while a phrase switch is in progress,
+                # so the current pack keeps its level until the fade-out starts.
+                gains = dict(self._stem_gains)
             current, new_pos = self._read_stem_mix(
                 stem_buffers, stem_positions, gains, frames
             )
@@ -526,7 +886,12 @@ class PlaceholderMixer:
                     self._stem_positions = new_pos
             current = self._apply_params(current, params)
 
-            if pack_fade_rem > 0 and stem_target_buffers:
+            with self._lock:
+                stem_switch_phase = self._stem_switch_phase
+            if stem_switch_phase != "idle":
+                # Phrase-boundary stem switch owns the output until done.
+                out = self._advance_stem_switch(current, frames)
+            elif pack_fade_rem > 0 and stem_target_buffers:
                 t = 1.0 - (pack_fade_rem / max(pack_fade_total, 1))
                 gain_a, gain_b = self._equal_power_weights(t)
                 target_block, t_pos = self._read_stem_mix(
@@ -549,6 +914,16 @@ class PlaceholderMixer:
                 out = mixed
             else:
                 out = current
+            # New pack enters slightly weaker after a phrase switch.
+            with self._lock:
+                sfin_rem = self._stem_switch_fade_in_remaining
+                sfin_total = self._stem_switch_fade_in_total
+            if sfin_rem > 0:
+                t = 1.0 - (sfin_rem / max(sfin_total, 1))
+                out = out * self._fade_in_gain(t)
+                sfin_rem = max(sfin_rem - frames, 0)
+                with self._lock:
+                    self._stem_switch_fade_in_remaining = sfin_rem
             result = (out * self.master_volume).astype(np.float32)
             self._update_visualiser(result)
             return result
@@ -556,7 +931,9 @@ class PlaceholderMixer:
         current = self._read_loop(profile, frames)
         current = self._apply_params(current, params)
 
-        if fade_rem > 0 and target != profile:
+        if switch_phase != "idle":
+            out = self._render_phrase_switch(current, frames)
+        elif fade_rem > 0 and target != profile:
             t = 1.0 - (fade_rem / max(fade_total, 1))
             gain_a, gain_b = self._equal_power_weights(t)
             target_block = self._read_loop(target, frames)
@@ -574,6 +951,17 @@ class PlaceholderMixer:
             out = mixed
         else:
             out = current
+
+        # New track enters slightly weaker after a phrase switch.
+        with self._lock:
+            fin_rem = self._switch_fade_in_remaining
+            fin_total = self._switch_fade_in_total
+        if fin_rem > 0:
+            t = 1.0 - (fin_rem / max(fin_total, 1))
+            out = out * self._fade_in_gain(t)
+            fin_rem = max(fin_rem - frames, 0)
+            with self._lock:
+                self._switch_fade_in_remaining = fin_rem
 
         result = (out * self.master_volume).astype(np.float32)
         self._update_visualiser(result)

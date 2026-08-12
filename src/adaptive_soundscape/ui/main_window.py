@@ -19,6 +19,10 @@ from PyQt6.QtWidgets import (
 )
 
 from adaptive_soundscape.core.events import FocusState, WorkContext
+from adaptive_soundscape.core.i18n import (
+    set_language as i18n_set_language,
+    tr,
+)
 from adaptive_soundscape.ui.home_page import HomePage
 from adaptive_soundscape.ui.inference_toast import InferenceToast
 from adaptive_soundscape.ui.settings_page import SettingsPage
@@ -149,9 +153,9 @@ QPushButton {
 
 
 NAV_ITEMS = [
-    ("🏠  Home", 0),
-    ("📤  Upload", 1),
-    ("⚙️  Settings", 2),
+    ("nav_home", 0),
+    ("nav_upload", 1),
+    ("nav_settings", 2),
 ]
 
 
@@ -173,7 +177,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Adaptive Cognitive Soundscape")
+        self.setWindowTitle(tr("window_title"))
         self.setMinimumSize(780, 540)
         self._dark = True
         self._current_nav_index = 0
@@ -200,8 +204,8 @@ class MainWindow(QMainWindow):
         sidebar_layout.setSpacing(4)
 
         self._nav_buttons: list[QPushButton] = []
-        for label, idx in NAV_ITEMS:
-            btn = QPushButton(label)
+        for key, idx in NAV_ITEMS:
+            btn = QPushButton(tr(key))
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(lambda _checked, i=idx: self._navigate(i))
             sidebar_layout.addWidget(btn)
@@ -385,6 +389,16 @@ class MainWindow(QMainWindow):
 
     def set_status_message(self, message: str) -> None:
         self._status_label.setText(message)
+
+    def set_language(self, code: str) -> None:
+        """Switch UI language across the whole window."""
+        i18n_set_language(code)
+        self.setWindowTitle(tr("window_title"))
+        for btn, (key, _idx) in zip(self._nav_buttons, NAV_ITEMS):
+            btn.setText(tr(key))
+        self._home_page.set_language(code)
+        self._upload_page.set_language(code)
+        self._settings_page.set_language(code)
 
     def update_status(
         self,

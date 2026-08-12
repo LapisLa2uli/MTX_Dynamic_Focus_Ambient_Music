@@ -18,28 +18,13 @@ from PyQt6.QtWidgets import (
 
 from adaptive_soundscape.audio.layer_mix import LAYER_IDS
 from adaptive_soundscape.core.events import WorkContext
-
-DESCRIPTION_TEXT = (
-    "Adaptive Cognitive Soundscape is an intelligent audio companion that "
-    "monitors your workspace activity in real time — recognising whether you "
-    "are coding, reading, designing, or distracted — and dynamically adjusts "
-    "ambient background audio to sustain deep focus and reduce cognitive drift. "
-    "It runs locally on your machine, works with your own sound libraries, "
-    "and requires no internet connection."
+from adaptive_soundscape.core.i18n import (
+    SUPPORTED_LANGUAGES,
+    set_language as i18n_set_language,
+    status_label as i18n_status_label,
+    theme_label as i18n_theme_label,
+    tr,
 )
-
-# ---------------------------------------------------------------------------
-# Theme labels (shared with home_page)
-# ---------------------------------------------------------------------------
-THEME_LABELS: dict[WorkContext, str] = {
-    WorkContext.PROGRAMMING: "Coding",
-    WorkContext.TEAM_WORKFLOW: "Collaborating",
-    WorkContext.READING_WRITING: "Reading & Writing",
-    WorkContext.SCIENTIFIC: "Research",
-    WorkContext.CREATIVE_DESIGN: "Creating",
-    WorkContext.DISTRACTION: "Distracted",
-    WorkContext.UNKNOWN: "Neutral",
-}
 
 # ---------------------------------------------------------------------------
 # Stylesheets
@@ -247,6 +232,22 @@ QPushButton:hover {
 }
 """
 
+ACTION_BTN_WHITE_STYLE = """
+QPushButton {
+    background-color: #2a2a34;
+    border: 1px solid #3e3e4a;
+    border-radius: 6px;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 10px 20px;
+}
+QPushButton:hover {
+    background-color: #333340;
+    color: #ffffff;
+}
+"""
+
 ACTION_BTN_LIGHT_STYLE = """
 QPushButton {
     background-color: #e8e8ee;
@@ -410,6 +411,7 @@ class SettingsPage(QWidget):
     debug_focus_override_changed = pyqtSignal(bool, float)  # enabled, score 0–1
     debug_layer_override_changed = pyqtSignal(bool)
     debug_layer_gain_changed = pyqtSignal(str, float)  # layer_id, gain 0–1
+    language_changed = pyqtSignal(str)
 
     DEFAULT_WAVEFORM_SMOOTHNESS = 0.35
     DEFAULT_AURORA_BRIGHTNESS_GAIN = 1.5
@@ -439,15 +441,18 @@ class SettingsPage(QWidget):
         self.setObjectName("settingsPage")
         self._dark = True
         self._status_colors: dict[str, str] = dict(DEFAULT_STATUS_COLORS)
+        self._trans: list[tuple[str, QWidget]] = []
+        self._color_labels: dict[str, QLabel] = {}
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(40, 28, 40, 24)
         outer.setSpacing(0)
 
         # ── Title ──
-        self._title = QLabel("Settings")
+        self._title = QLabel(tr("settings_title"))
         self._title.setObjectName("pageTitle")
         outer.addWidget(self._title)
+        self._trans.append(("settings_title", self._title))
 
         # ── Scrollable content area ──
         scroll = QScrollArea()
@@ -463,93 +468,92 @@ class SettingsPage(QWidget):
         content.setSpacing(12)
 
         # -- Section: About --
-        content.addWidget(self._section_label("About"))
-        about = QLabel(DESCRIPTION_TEXT)
+        content.addWidget(self._section_label("section_about"))
+        about = QLabel(tr("about_text"))
         about.setObjectName("aboutLabel")
         about.setWordWrap(True)
         about.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         content.addWidget(about)
+        self._trans.append(("about_text", about))
 
         # -- Section: Appearance --
-        content.addWidget(self._section_label("Appearance"))
+        content.addWidget(self._section_label("section_appearance"))
         self._build_dark_mode_row(content)
+        self._build_language_row(content)
         self._wave_slider, self._wave_label = self._build_slider_row(
             content,
-            "Waveform Smoothness",
+            "wave_label",
             int(round(waveform_smoothness * 100)),
             0,
             100,
             "{:d}%",
         )
-        wave_hint = QLabel("Lower  →  more detailed ring ·  Higher  →  softer oval glow")
+        wave_hint = QLabel(tr("wave_hint"))
         wave_hint.setObjectName("hintLabel")
         content.addWidget(wave_hint)
+        self._trans.append(("wave_hint", wave_hint))
 
         self._aurora_slider, self._aurora_label = self._build_slider_row(
             content,
-            "Aurora Brightness Gain",
+            "aurora_label",
             int(round(aurora_brightness_gain * 100)),
             0,
             300,
             "{:.1f}×",
         )
-        aurora_hint = QLabel(
-            "How strongly rising focus brightens the flowing lights behind the glass"
-        )
+        aurora_hint = QLabel(tr("aurora_hint"))
         aurora_hint.setObjectName("hintLabel")
         content.addWidget(aurora_hint)
+        self._trans.append(("aurora_hint", aurora_hint))
 
         # -- Section: Audio --
-        content.addWidget(self._section_label("Audio"))
+        content.addWidget(self._section_label("section_audio"))
         self._volume_slider, self._volume_label = self._build_slider_row(
-            content, "Master Volume", int(master_volume * 100), 0, 100, "{:d}%"
+            content, "volume_label", int(master_volume * 100), 0, 100, "{:d}%"
         )
         self._muffle_slider, self._muffle_label = self._build_slider_row(
             content,
-            "Muffling Strength",
+            "muffle_label",
             int(round(muffling_strength * 100)),
             0,
             100,
             "{:d}%",
         )
-        muffle_hint = QLabel(
-            "How strongly low focus muffles music (low-pass). Effect is amplified (~3×); "
-            "breaks use a stronger muffle."
-        )
+        muffle_hint = QLabel(tr("muffle_hint"))
         muffle_hint.setObjectName("hintLabel")
         muffle_hint.setWordWrap(True)
         content.addWidget(muffle_hint)
+        self._trans.append(("muffle_hint", muffle_hint))
 
         # -- Section: Cognitive --
-        content.addWidget(self._section_label("Cognitive"))
+        content.addWidget(self._section_label("section_cognitive"))
         self._threshold_slider, self._threshold_label = self._build_slider_row(
             content,
-            "Concentration Threshold",
+            "threshold_label",
             int(sensitivity * 100),
             20,
             200,
             "{:.1f}",
         )
-        hint = QLabel("Higher  →  more easily detected as distracted")
+        hint = QLabel(tr("threshold_hint"))
         hint.setObjectName("hintLabel")
         content.addWidget(hint)
-        session_hint = QLabel(
-            "Start Pomodoro and Calibrate Focus from the home page. "
-            "The first 5 minutes of each Pomodoro work block also calibrate that session."
-        )
+        self._trans.append(("threshold_hint", hint))
+        session_hint = QLabel(tr("session_hint"))
         session_hint.setObjectName("hintLabel")
         session_hint.setWordWrap(True)
         content.addWidget(session_hint)
+        self._trans.append(("session_hint", session_hint))
         self._build_focus_session_rows(content)
 
         # -- Section: Personalization --
-        content.addWidget(self._section_label("Personalization"))
+        content.addWidget(self._section_label("section_personalization"))
         self._build_theme_row(content, main_theme)
         self._build_categories_row(content)
         self._build_focus_data_rows(content)
 
         # -- Section: Color Themes --
-        content.addWidget(self._section_label("Status Colors"))
+        content.addWidget(self._section_label("section_status_colors"))
         self._color_widgets: dict[str, list[QWidget]] = {}
         for profile_id in STATUS_DISPLAY_NAMES:
             self._build_color_row(content, profile_id)
@@ -565,20 +569,23 @@ class SettingsPage(QWidget):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
 
-        self._home_btn = QPushButton("Return to Home")
+        self._home_btn = QPushButton(tr("home_btn"))
         self._home_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._home_btn.clicked.connect(self.home_requested.emit)
         btn_row.addWidget(self._home_btn)
+        self._trans.append(("home_btn", self._home_btn))
 
         btn_row.addStretch()
 
-        self._reset_btn = QPushButton("Reset Settings")
+        self._reset_btn = QPushButton(tr("reset_btn"))
         self._reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._reset_btn.clicked.connect(self.reset_requested.emit)
         btn_row.addWidget(self._reset_btn)
+        self._trans.append(("reset_btn", self._reset_btn))
 
-        self._quit_btn = QPushButton("Quit App")
+        self._quit_btn = QPushButton(tr("quit_btn"))
         self._quit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._trans.append(("quit_btn", self._quit_btn))
         self._quit_btn.clicked.connect(self.quit_requested.emit)
         btn_row.addWidget(self._quit_btn)
 
@@ -590,19 +597,20 @@ class SettingsPage(QWidget):
     # Internal builders
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _section_label(text: str) -> QLabel:
-        lbl = QLabel(text)
+    def _section_label(self, key: str) -> QLabel:
+        lbl = QLabel(tr(key))
         lbl.setObjectName("sectionTitle")
+        self._trans.append((key, lbl))
         return lbl
 
     def _build_dark_mode_row(self, container: QVBoxLayout) -> None:
         row = QHBoxLayout()
         row.setSpacing(12)
 
-        label = QLabel("Dark Mode")
+        label = QLabel(tr("dark_mode"))
         label.setObjectName("settingLabel")
         row.addWidget(label)
+        self._trans.append(("dark_mode", label))
 
         self._dark_toggle = QPushButton("ON")
         self._dark_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -613,10 +621,29 @@ class SettingsPage(QWidget):
 
         container.addLayout(row)
 
+    def _build_language_row(self, container: QVBoxLayout) -> None:
+        row = QHBoxLayout()
+        row.setSpacing(12)
+
+        label = QLabel(tr("language_label"))
+        label.setObjectName("settingLabel")
+        row.addWidget(label)
+        self._trans.append(("language_label", label))
+
+        self._language_combo = QComboBox()
+        self._language_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        for code, native in SUPPORTED_LANGUAGES:
+            self._language_combo.addItem(native, code)
+        self._language_combo.currentIndexChanged.connect(self._on_language_changed)
+        row.addWidget(self._language_combo)
+        row.addStretch()
+
+        container.addLayout(row)
+
     def _build_slider_row(
         self,
         container: QVBoxLayout,
-        label_text: str,
+        label_key: str,
         initial: int,
         lo: int,
         hi: int,
@@ -625,9 +652,10 @@ class SettingsPage(QWidget):
         row = QHBoxLayout()
         row.setSpacing(12)
 
-        label = QLabel(label_text)
+        label = QLabel(tr(label_key))
         label.setObjectName("settingLabel")
         row.addWidget(label)
+        self._trans.append((label_key, label))
 
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(lo, hi)
@@ -799,14 +827,15 @@ class SettingsPage(QWidget):
         row = QHBoxLayout()
         row.setSpacing(12)
 
-        label = QLabel("Main Theme")
+        label = QLabel(tr("theme_label"))
         label.setObjectName("settingLabel")
         row.addWidget(label)
+        self._trans.append(("theme_label", label))
 
         self._theme_combo = QComboBox()
         self._theme_combo.setCursor(Qt.CursorShape.PointingHandCursor)
         for ctx in WorkContext:
-            display = THEME_LABELS.get(ctx, ctx.value.title())
+            display = i18n_theme_label(ctx.value)
             self._theme_combo.addItem(display, ctx.value)
 
         # Select current theme
@@ -823,13 +852,15 @@ class SettingsPage(QWidget):
     def _build_focus_session_rows(self, container: QVBoxLayout) -> None:
         probe_row = QHBoxLayout()
         probe_row.setSpacing(8)
-        self._probe_btn = QPushButton("Run Attention Probe")
+        self._probe_btn = QPushButton(tr("probe_btn"))
         self._probe_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._probe_btn.clicked.connect(self.probe_requested.emit)
         probe_row.addWidget(self._probe_btn)
-        probe_label = QLabel("Attention Probes")
+        self._trans.append(("probe_btn", self._probe_btn))
+        probe_label = QLabel(tr("probes_label"))
         probe_label.setObjectName("settingLabel")
         probe_row.addWidget(probe_label)
+        self._trans.append(("probes_label", probe_label))
         self._probes_toggle = QPushButton("ON")
         self._probes_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self._probes_toggle.setFixedWidth(64)
@@ -838,25 +869,25 @@ class SettingsPage(QWidget):
         probe_row.addWidget(self._probes_toggle)
         probe_row.addStretch()
         container.addLayout(probe_row)
-        privacy_hint = QLabel(
-            "Focus data is local-only (categories & aggregates). No titles, keystrokes, "
-            "clipboard, mic, or camera are stored."
-        )
+        privacy_hint = QLabel(tr("privacy_hint"))
         privacy_hint.setObjectName("hintLabel")
         privacy_hint.setWordWrap(True)
         container.addWidget(privacy_hint)
+        self._trans.append(("privacy_hint", privacy_hint))
 
     def _build_focus_data_rows(self, container: QVBoxLayout) -> None:
         row = QHBoxLayout()
         row.setSpacing(8)
-        export_btn = QPushButton("Export Focus Data")
-        export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        export_btn.clicked.connect(self.export_focus_data_requested.emit)
-        row.addWidget(export_btn)
-        delete_btn = QPushButton("Delete Focus Data")
-        delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        delete_btn.clicked.connect(self.delete_focus_data_requested.emit)
-        row.addWidget(delete_btn)
+        self._export_btn = QPushButton(tr("export_btn"))
+        self._export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._export_btn.clicked.connect(self.export_focus_data_requested.emit)
+        row.addWidget(self._export_btn)
+        self._trans.append(("export_btn", self._export_btn))
+        self._delete_btn = QPushButton(tr("delete_btn"))
+        self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._delete_btn.clicked.connect(self.delete_focus_data_requested.emit)
+        row.addWidget(self._delete_btn)
+        self._trans.append(("delete_btn", self._delete_btn))
         row.addStretch()
         container.addLayout(row)
 
@@ -872,26 +903,25 @@ class SettingsPage(QWidget):
         row = QHBoxLayout()
         row.setSpacing(12)
 
-        label = QLabel("Window Categories")
+        label = QLabel(tr("categories_label"))
         label.setObjectName("settingLabel")
         row.addWidget(label)
+        self._trans.append(("categories_label", label))
 
-        btn = QPushButton("Manage…")
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setToolTip(
-            "Edit saved process names and title keywords used for window classification."
-        )
-        btn.clicked.connect(self.categories_requested.emit)
-        row.addWidget(btn)
+        self._manage_btn = QPushButton(tr("manage_btn"))
+        self._manage_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._manage_btn.setToolTip(tr("manage_tip"))
+        self._manage_btn.clicked.connect(self.categories_requested.emit)
+        row.addWidget(self._manage_btn)
+        self._trans.append(("manage_btn", self._manage_btn))
         row.addStretch()
         container.addLayout(row)
 
-        hint = QLabel(
-            "Choices from the unknown-window panel are saved here and kept after restart."
-        )
+        hint = QLabel(tr("categories_hint"))
         hint.setObjectName("hintLabel")
         hint.setWordWrap(True)
         container.addWidget(hint)
+        self._trans.append(("categories_hint", hint))
 
     def _build_color_row(self, container: QVBoxLayout, profile_id: str) -> None:
         """One row: icon + name | colour swatch | Pick button."""
@@ -899,10 +929,11 @@ class SettingsPage(QWidget):
         row.setSpacing(8)
 
         icon = STATUS_ICONS.get(profile_id, "⚫")
-        name = STATUS_DISPLAY_NAMES.get(profile_id, profile_id)
+        name = i18n_status_label(profile_id)
         label = QLabel(f"{icon}  {name}")
         label.setObjectName("settingLabel")
         row.addWidget(label)
+        self._color_labels[profile_id] = label
 
         color = self._status_colors[profile_id]
         swatch = QPushButton()
@@ -913,10 +944,11 @@ class SettingsPage(QWidget):
         )
         row.addWidget(swatch)
 
-        pick_btn = QPushButton("Pick\u2026")
+        pick_btn = QPushButton(tr("pick_btn"))
         pick_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         pick_btn.clicked.connect(lambda _c, pid=profile_id, s=swatch: self._pick_color(pid, s))
         row.addWidget(pick_btn)
+        self._trans.append(("pick_btn", pick_btn))
 
         row.addStretch()
         container.addLayout(row)
@@ -926,7 +958,8 @@ class SettingsPage(QWidget):
     def _pick_color(self, profile_id: str, swatch: QPushButton) -> None:
         """Open QColorDialog and update the per-status colour."""
         current = QColor(self._status_colors[profile_id])
-        color = QColorDialog.getColor(current, self, f"Pick colour for {STATUS_DISPLAY_NAMES.get(profile_id, profile_id)}")
+        name = i18n_status_label(profile_id)
+        color = QColorDialog.getColor(current, self, tr("pick_color_for").format(name))
         if not color.isValid():
             return
         hex_color = color.name()
@@ -950,6 +983,13 @@ class SettingsPage(QWidget):
         data = self._theme_combo.currentData()
         if isinstance(data, str):
             self.main_theme_changed.emit(data)
+
+    def _on_language_changed(self, _index: int) -> None:
+        code = self._language_combo.currentData()
+        if isinstance(code, str):
+            i18n_set_language(code)
+            self.retranslate()
+            self.language_changed.emit(code)
 
     # ------------------------------------------------------------------
     # Theme switching
@@ -992,6 +1032,14 @@ class SettingsPage(QWidget):
         # Colour-picker buttons follow theme
         for _swatch, pick_btn in self._color_widgets.values():
             pick_btn.setStyleSheet(COLOR_PICKER_BTN_STYLE if dark else LIGHT_COLOR_PICKER_BTN_STYLE)
+        # Manage / Export / Delete data buttons follow theme (white text in dark mode)
+        for b in (
+            getattr(self, "_manage_btn", None),
+            getattr(self, "_export_btn", None),
+            getattr(self, "_delete_btn", None),
+        ):
+            if b is not None:
+                b.setStyleSheet(ACTION_BTN_WHITE_STYLE if dark else ACTION_BTN_LIGHT_STYLE)
 
     # ------------------------------------------------------------------
     # Public API
@@ -1049,6 +1097,40 @@ class SettingsPage(QWidget):
                 self._theme_combo.setCurrentIndex(i)
                 break
         self._theme_combo.blockSignals(False)
+
+    def set_language(self, code: str) -> None:
+        """Switch UI language without re-emitting the language_changed signal."""
+        i18n_set_language(code)
+        self._language_combo.blockSignals(True)
+        for i in range(self._language_combo.count()):
+            if self._language_combo.itemData(i) == code:
+                self._language_combo.setCurrentIndex(i)
+                break
+        self._language_combo.blockSignals(False)
+        self.retranslate()
+
+    def retranslate(self) -> None:
+        """Re-apply the active language to every static string on the page."""
+        for key, widget in self._trans:
+            widget.setText(tr(key))
+        for profile_id, label in self._color_labels.items():
+            icon = STATUS_ICONS.get(profile_id, "⚫")
+            label.setText(f"{icon}  {i18n_status_label(profile_id)}")
+        if getattr(self, "_manage_btn", None) is not None:
+            self._manage_btn.setToolTip(tr("manage_tip"))
+        # Rebuild theme combo items (localized) while keeping the selection
+        combo = getattr(self, "_theme_combo", None)
+        if combo is not None:
+            current = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            for ctx in WorkContext:
+                combo.addItem(i18n_theme_label(ctx.value), ctx.value)
+            for i in range(combo.count()):
+                if combo.itemData(i) == current:
+                    combo.setCurrentIndex(i)
+                    break
+            combo.blockSignals(False)
 
     def get_status_colors(self) -> dict[str, str]:
         """Return the current per-status colour map (profile_id → hex)."""

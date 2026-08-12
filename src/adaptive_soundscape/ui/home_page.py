@@ -6,8 +6,17 @@ from dataclasses import dataclass
 from math import cos, pi, sin
 from random import Random
 
-from PyQt6.QtCore import QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QRadialGradient
+from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import (
+    QColor,
+    QFont,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPolygonF,
+    QRadialGradient,
+)
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -19,17 +28,12 @@ from PyQt6.QtWidgets import (
 )
 
 from adaptive_soundscape.core.events import WorkContext
+from adaptive_soundscape.core.i18n import (
+    set_language as i18n_set_language,
+    theme_label as i18n_theme_label,
+    tr,
+)
 from adaptive_soundscape.ui.settings_page import DEFAULT_STATUS_COLORS
-
-THEME_LABELS: dict[WorkContext, str] = {
-    WorkContext.PROGRAMMING: "Coding",
-    WorkContext.TEAM_WORKFLOW: "Collaborating",
-    WorkContext.READING_WRITING: "Reading & Writing",
-    WorkContext.SCIENTIFIC: "Research",
-    WorkContext.CREATIVE_DESIGN: "Creating",
-    WorkContext.DISTRACTION: "Distracted",
-    WorkContext.UNKNOWN: "Neutral",
-}
 
 def _home_stylesheet(*, dark: bool, scale: float = 1.0) -> str:
     """Home-page QSS with fonts/metrics scaled for the current window size."""
@@ -63,7 +67,7 @@ QLabel#focusTitleLabel {{
     font-weight: 700;
 }}
 QLabel#descriptionLabel {{
-    color: #7a7a86;
+    color: #ffffff;
     font-size: {px(12, 10)};
     font-weight: 700;
     line-height: 1.6;
@@ -79,13 +83,23 @@ QProgressBar#focusBar::chunk {{
     background-color: #5b8def;
     border-radius: {px(3)};
 }}
-QPushButton#classifyBtn, QPushButton#pomoBtn, QPushButton#calibBtn {{
+QPushButton#classifyBtn {{
     background-color: #2a2a36;
     border: 2px solid #555566;
     border-radius: {px(14, 8)};
     padding: {px(6, 4)} {px(14, 10)};
     color: #b0b0be;
     font-size: {px(11, 9)};
+    font-weight: 600;
+}}
+QPushButton#pomoBtn, QPushButton#calibBtn {{
+    background-color: #2a2a36;
+    border: 2px solid #555566;
+    border-radius: {px(18, 12)};
+    min-height: {px(36, 24)};
+    padding: {px(6, 4)} {px(14, 10)};
+    color: #b0b0be;
+    font-size: {px(11, 8)};
     font-weight: 600;
 }}
 QPushButton#classifyBtn:hover, QPushButton#pomoBtn:hover, QPushButton#calibBtn:hover {{
@@ -95,6 +109,8 @@ QPushButton#classifyBtn:hover, QPushButton#pomoBtn:hover, QPushButton#calibBtn:h
 }}
 QPushButton#pomoBtn[active="true"], QPushButton#calibBtn[active="true"] {{
     border-color: #5b8def;
+    border-radius: {px(18, 12)};
+    min-height: {px(36, 24)};
     color: #e8eefc;
     background-color: rgba(91, 141, 239, 0.22);
 }}
@@ -124,7 +140,7 @@ QLabel#focusTitleLabel {{
     font-weight: 700;
 }}
 QLabel#descriptionLabel {{
-    color: #686878;
+    color: #000000;
     font-size: {px(12, 10)};
     font-weight: 700;
     line-height: 1.6;
@@ -140,13 +156,23 @@ QProgressBar#focusBar::chunk {{
     background-color: #5b8def;
     border-radius: {px(3)};
 }}
-QPushButton#classifyBtn, QPushButton#pomoBtn, QPushButton#calibBtn {{
+QPushButton#classifyBtn {{
     background-color: #eaeaef;
     border: 2px solid #c0c0cc;
     border-radius: {px(14, 8)};
     padding: {px(6, 4)} {px(14, 10)};
     color: #686878;
     font-size: {px(11, 9)};
+    font-weight: 600;
+}}
+QPushButton#pomoBtn, QPushButton#calibBtn {{
+    background-color: #eaeaef;
+    border: 2px solid #c0c0cc;
+    border-radius: {px(18, 12)};
+    min-height: {px(36, 24)};
+    padding: {px(6, 4)} {px(14, 10)};
+    color: #686878;
+    font-size: {px(11, 8)};
     font-weight: 600;
 }}
 QPushButton#classifyBtn:hover, QPushButton#pomoBtn:hover, QPushButton#calibBtn:hover {{
@@ -156,6 +182,8 @@ QPushButton#classifyBtn:hover, QPushButton#pomoBtn:hover, QPushButton#calibBtn:h
 }}
 QPushButton#pomoBtn[active="true"], QPushButton#calibBtn[active="true"] {{
     border-color: #3d6fd4;
+    border-radius: {px(18, 12)};
+    min-height: {px(36, 24)};
     color: #2a4f9e;
     background-color: rgba(61, 111, 212, 0.14);
 }}
@@ -246,7 +274,10 @@ class EqRingWidget(QWidget):
     _TICK_MS = 16  # ≈60 Hz
     _DESIGN_SIZE = 220.0
     _DESIGN_RADIUS = 75.0
-    _DESIGN_EXTENT = 38.0
+    _DESIGN_EXTENT = 34.0          # r + ext = 109 < half-size 110 → waves stay in box
+    _RING_MIN = 0.16               # min ring thickness — valleys dip deep for big swings
+    _BASE_EXT = 0.30               # constant base ring thickness (fraction of ext) —
+    #                               always-visible full circle → top gap impossible
     _N_CURVE = 720                 # high-res points for a smooth closed path
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -256,6 +287,7 @@ class EqRingWidget(QWidget):
         self._hovered = False
         self._pressed = False
         self._active = False
+        self._dark = True
         self._ambient = QColor(180, 190, 210)
         self._smooth: list[float] = [0.0] * self.N_BARS
         self._targets: list[float] = [0.0] * self.N_BARS
@@ -312,6 +344,16 @@ class EqRingWidget(QWidget):
         self._smooth = [0.0] * self.N_BARS
         self._display = [0.0] * self.N_BARS
         self._band_peak = [1e-3] * self.N_BARS
+
+    def set_label(self, label: str) -> None:
+        """Update the centre label without disturbing the ring animation."""
+        self._label = label
+        self.update()
+
+    def set_dark_mode(self, enabled: bool) -> None:
+        """Switch the label text colour to match dark / light themes."""
+        self._dark = enabled
+        self.update()
         self.update()
 
     def set_bands(self, bands: list[float]) -> None:
@@ -345,7 +387,10 @@ class EqRingWidget(QWidget):
             else:
                 peak = max(1e-3, peak * peak_decay)
             self._band_peak[i] = peak
-            leveled.append(max(0.0, min(1.0, v / peak)))
+            # Per-band floor: the lowest band maps to the top of the ring and
+            # can sit near zero, which visually opened a gap there.  Enforcing
+            # a floor keeps every arc animated and the ring fully encircled.
+            leveled.append(max(0.10, min(1.0, v / peak)))
 
         # Weave low / mid / high thirds around the circle so correlated bass
         # bins are not clustered into a single lobe.
@@ -519,7 +564,13 @@ class EqRingWidget(QWidget):
                 t_cos = 0.5 - 0.5 * cos(pi * frac)
                 t = (1.0 - self._interp_cosine) * frac + self._interp_cosine * t_cos
                 amp = amps[i0] * (1.0 - t) + amps[i1] * t
-                dist = r + amp * ext
+                # Contrast-stretch the amplitude (power < 1 lifts mids, deepens
+                # valleys, sharpens peaks) for larger visible fluctuation while
+                # the radius stays bounded by ext — the waves never leave the box.
+                amp = max(0.0, min(1.0, amp)) ** 1.6
+                # Keep a minimum ring thickness even when a band is near-zero,
+                # so the ring never fully hugs the button (no empty top gap).
+                dist = r + (self._RING_MIN + (1.0 - self._RING_MIN) * amp) * ext
                 outer_pts.append((cx + dist * cos(angle), cy + dist * sin(angle)))
 
             # Inner circle (reversed) to close the ring.
@@ -531,15 +582,20 @@ class EqRingWidget(QWidget):
                 angle = -0.5 * pi + 2.0 * pi * k / n_curve
                 inner_pts.append((cx + inner_r * cos(angle), cy + inner_r * sin(angle)))
 
+            # Two closed subpaths (outer wave + inner circle) with OddEven
+            # fill.  A single winding subpath puts a radial seam at the top
+            # where the wave collapses; the dense edges there make the
+            # scanline filler drop the fill on a small top spot while the
+            # outline (drawn separately) still shows.  OddEven on two closed
+            # rings has no seam and cannot hollow the band.
             ring_path = QPainterPath()
-            ring_path.moveTo(*outer_pts[0])
-            for pt in outer_pts[1:]:
-                ring_path.lineTo(*pt)
-            for pt in inner_pts:
-                ring_path.lineTo(*pt)
-            ring_path.closeSubpath()
+            ring_path.addPolygon(QPolygonF([QPointF(x, y) for x, y in outer_pts]))
+            ring_path.addPolygon(QPolygonF([QPointF(x, y) for x, y in inner_pts]))
+            ring_path.setFillRule(Qt.FillRule.OddEvenFill)
 
-            # Radial gradient fill — theme colour (eases with work-type aurora)
+            # Radial gradient fill — theme colour (eases with work-type aurora).
+            # Bright at the inner edge, fading to a dim, desaturated rim so the
+            # band clearly reads as a gradient even at rest.
             theme = self._ambient
             h, s, v, _a = theme.getHsvF()
             if h < 0:
@@ -547,25 +603,46 @@ class EqRingWidget(QWidget):
             s = min(1.0, max(0.35, s * 1.15 + 0.1))
             v = min(1.0, max(0.55, v * 1.1 + 0.08))
 
-            def _tint(sat: float, val: float, alpha: int) -> QColor:
+            def _tint(sat: float, val: float, alpha: int, hue_shift: float = 0.0) -> QColor:
                 c = QColor()
-                c.setHsvF(h, min(1.0, sat), min(1.0, val), 1.0)
+                c.setHsvF((h + hue_shift) % 1.0, min(1.0, sat), min(1.0, val), 1.0)
                 c.setAlpha(alpha)
                 return c
 
             grad = QRadialGradient(cx, cy, r + ext)
-            grad.setColorAt(r / (r + ext), _tint(s, v, 200))
-            grad.setColorAt((r + ext * 0.5) / (r + ext), _tint(s * 0.85, v * 0.95, 120))
-            grad.setColorAt(1.0, _tint(s * 0.55, v * 0.85, 20))
+            grad.setColorAt(0.0, _tint(s, v, 245))
+            grad.setColorAt(r / (r + ext), _tint(s, v, 245))
+            grad.setColorAt(0.78, _tint(s * 0.9, v * 0.84, 205, 0.015))
+            grad.setColorAt(0.89, _tint(s * 0.68, v * 0.68, 155, 0.025))
+            grad.setColorAt(1.0, _tint(s * 0.45, v * 0.5, 115, 0.035))
 
+            # Constant base ring underneath — a fixed-thickness annulus that
+            # fully encircles the button at every angle.  Even when the low
+            # band (which maps to the top of the ring) is silent, the top arc
+            # still shows this base band, so a visible gap can never form.
+            base_outer = r + self._BASE_EXT * ext
+            base_path = QPainterPath()
+            base_path.addEllipse(
+                cx - base_outer, cy - base_outer, 2 * base_outer, 2 * base_outer
+            )
+            base_path.addEllipse(cx - inner_r, cy - inner_r, 2 * inner_r, 2 * inner_r)
+            base_path.setFillRule(Qt.FillRule.OddEvenFill)
+            base_grad = QRadialGradient(cx, cy, base_outer)
+            base_grad.setColorAt(0.0, _tint(s * 0.92, v * 0.95, 175))
+            base_grad.setColorAt(1.0, _tint(s * 0.75, v * 0.88, 150))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(base_grad)
+            p.drawPath(base_path)
+
+            # Animated wave ring on top of the base ring.
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(grad)
             p.drawPath(ring_path)
 
-            # Bright outer contour line — closed loop
+            # Subtle outer contour line — closed loop (soft, not a hard border)
             outline_pen = QPen(
-                _tint(s, min(1.0, v * 1.05), 165),
-                max(1.0, 1.5 * scale),
+                _tint(s, min(1.0, v), 55),
+                max(1.0, 0.9 * scale),
                 Qt.PenStyle.SolidLine,
                 Qt.PenCapStyle.RoundCap,
                 Qt.PenJoinStyle.RoundJoin,
@@ -591,7 +668,14 @@ class EqRingWidget(QWidget):
         p.setFont(font)
         text_rect_x, text_rect_y = int(cx - r), int(cy - r)
         text_rect_w, text_rect_h = int(r * 2), int(r * 2)
-        p.setPen(QColor(0, 0, 0, 90))
+        # Theme-aware text: white on dark glass, near-black on light glass.
+        if self._dark:
+            shadow = QColor(0, 0, 0, 90)
+            text = QColor(255, 255, 255, 235)
+        else:
+            shadow = QColor(255, 255, 255, 150)
+            text = QColor(18, 18, 26, 235)
+        p.setPen(shadow)
         p.drawText(
             text_rect_x,
             text_rect_y + max(1, int(round(scale))),
@@ -600,7 +684,7 @@ class EqRingWidget(QWidget):
             Qt.AlignmentFlag.AlignCenter,
             self._label,
         )
-        p.setPen(QColor(255, 255, 255, 235))
+        p.setPen(text)
         p.drawText(
             text_rect_x,
             text_rect_y,
@@ -725,7 +809,7 @@ class HomePage(QWidget):
         self._aurora_target = QColor(self._aurora_color)
         self._focus_level = 0.0
         self._focus_target = 0.0
-        self._aurora_brightness_gain = 1.5
+        self._aurora_brightness_gain = 2.5
         self._blob_count_f = float(self._BLOB_MIN)
         self._blob_rng = Random(7)
         self._blobs = self._make_blobs(self._BLOB_MAX, seed=7)
@@ -755,7 +839,7 @@ class HomePage(QWidget):
         motto_w.setStyleSheet("background: transparent;")
         motto_l = QVBoxLayout(motto_w)
         motto_l.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._motto = QLabel("Your Focus, Amplified by Sound")
+        self._motto = QLabel(tr("home_motto"))
         self._motto.setObjectName("mottoLabel")
         self._motto.setAlignment(Qt.AlignmentFlag.AlignCenter)
         motto_l.addWidget(self._motto)
@@ -772,8 +856,8 @@ class HomePage(QWidget):
 
         focus_row = QHBoxLayout()
         focus_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        focus_title = QLabel("FOCUS")
-        focus_title.setObjectName("focusTitleLabel")
+        self._focus_title = QLabel(tr("home_focus"))
+        self._focus_title.setObjectName("focusTitleLabel")
         self._focus_bar = QProgressBar()
         self._focus_bar.setObjectName("focusBar")
         self._focus_bar.setRange(0, 100)
@@ -781,7 +865,7 @@ class HomePage(QWidget):
         self._focus_bar.setFixedWidth(240)
         self._focus_pct = QLabel("0%")
         self._focus_pct.setObjectName("focusPctLabel")
-        focus_row.addWidget(focus_title)
+        focus_row.addWidget(self._focus_title)
         focus_row.addSpacing(8)
         focus_row.addWidget(self._focus_bar)
         focus_row.addSpacing(8)
@@ -804,7 +888,7 @@ class HomePage(QWidget):
         self._root.addWidget(self._top_stack, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Outside the fixed-height top stack so the full button is never clipped.
-        self._classify_btn = QPushButton("Confirm Classification")
+        self._classify_btn = QPushButton(tr("home_classify"))
         self._classify_btn.setObjectName("classifyBtn")
         self._classify_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._classify_btn.setMinimumWidth(200)
@@ -827,7 +911,7 @@ class HomePage(QWidget):
         session_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
         session_row.setSpacing(10)
 
-        self._pomo_btn = QPushButton("Start Pomodoro")
+        self._pomo_btn = QPushButton(tr("home_pomodoro_idle"))
         self._pomo_btn.setObjectName("pomoBtn")
         self._pomo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._pomo_btn.setFixedWidth(168)
@@ -835,14 +919,12 @@ class HomePage(QWidget):
         self._pomo_btn.clicked.connect(self._on_pomodoro_clicked)
         session_row.addWidget(self._pomo_btn)
 
-        self._calib_btn = QPushButton("Calibrate Focus")
+        self._calib_btn = QPushButton(tr("home_calibrate_idle"))
         self._calib_btn.setObjectName("calibBtn")
         self._calib_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._calib_btn.setFixedWidth(168)
         self._calib_btn.setProperty("active", False)
-        self._calib_btn.setToolTip(
-            "Run a 5–10 minute focused calibration for the current task profile."
-        )
+        self._calib_btn.setToolTip(tr("home_calibrate_tip"))
         self._calib_btn.clicked.connect(self._on_calibrate_clicked)
         session_row.addWidget(self._calib_btn)
 
@@ -983,6 +1065,16 @@ class HomePage(QWidget):
             base = QColor(0x1A, 0x1A, 0x1E)
         else:
             base = QColor(0xF5, 0xF5, 0xF8)
+        # Focus tints the whole background toward the theme colour so the
+        # change in focus level is clearly visible even outside the blobs.
+        if self._focus_level > 0.01:
+            tint = QColor(self._aurora_color)
+            f = self._focus_level * 0.22
+            base = QColor(
+                int(base.red() + (tint.red() - base.red()) * f),
+                int(base.green() + (tint.green() - base.green()) * f),
+                int(base.blue() + (tint.blue() - base.blue()) * f),
+            )
         p.fillRect(self.rect(), base)
 
         def _scaled_alpha(a: int) -> int:
@@ -992,12 +1084,12 @@ class HomePage(QWidget):
         wash = QLinearGradient(0, 0, 0, h)
         theme = QColor(self._aurora_color)
         if self._dark:
-            wash.setColorAt(0.0, QColor(theme.red(), theme.green(), theme.blue(), _scaled_alpha(22)))
-            wash.setColorAt(0.55, QColor(theme.red(), theme.green(), theme.blue(), _scaled_alpha(8)))
+            wash.setColorAt(0.0, QColor(theme.red(), theme.green(), theme.blue(), _scaled_alpha(30)))
+            wash.setColorAt(0.55, QColor(theme.red(), theme.green(), theme.blue(), _scaled_alpha(10)))
             wash.setColorAt(1.0, QColor(0, 0, 0, 40))
         else:
-            wash.setColorAt(0.0, QColor(theme.red(), theme.green(), theme.blue(), _scaled_alpha(28)))
-            wash.setColorAt(0.6, QColor(theme.red(), theme.green(), theme.blue(), _scaled_alpha(10)))
+            wash.setColorAt(0.0, QColor(theme.red(), theme.green(), theme.blue(), _scaled_alpha(48)))
+            wash.setColorAt(0.6, QColor(theme.red(), theme.green(), theme.blue(), _scaled_alpha(18)))
             wash.setColorAt(1.0, QColor(255, 255, 255, 0))
         p.fillRect(self.rect(), wash)
 
@@ -1018,13 +1110,21 @@ class HomePage(QWidget):
             if h_deg < 0:
                 h_deg = 0.0
             h_deg = (h_deg + blob.hue_shift / 360.0) % 1.0
-            s = min(1.0, max(0.0, s * blob.sat_scale + (0.15 if self._dark else 0.05)))
-            # Focus lifts luminance of the flowing lights
-            v_boost = 1.0 + 0.35 * self._focus_level * self._aurora_brightness_gain
-            v = min(1.0, v * (1.05 if self._dark else 0.92) * v_boost)
+            if self._dark:
+                s = min(1.0, max(0.0, s * blob.sat_scale + 0.15))
+                # Focus lifts luminance of the flowing lights
+                v_boost = 1.0 + 0.45 * self._focus_level * self._aurora_brightness_gain
+                v = min(1.0, v * 1.05 * v_boost)
+            else:
+                # Bright theme: keep the hue saturated but darken the colour so
+                # the orbs read clearly against the pale base instead of
+                # washing out toward white.
+                s = min(1.0, max(0.0, s * blob.sat_scale + 0.18))
+                v_boost = 1.0 + 0.30 * self._focus_level * self._aurora_brightness_gain
+                v = min(1.0, max(0.22, v * 0.45 / v_boost))
             c.setHsvF(h_deg, s, v)
 
-            alpha = blob.alpha if self._dark else int(blob.alpha * 0.55)
+            alpha = blob.alpha if self._dark else int(blob.alpha * 0.95)
             breath = 0.75 + 0.25 * sin(blob.phase * 0.7)
             alpha = _scaled_alpha(int(alpha * breath * presence))
 
@@ -1094,8 +1194,8 @@ class HomePage(QWidget):
             self._pomo_btn,
             active_flag_attr="_pomodoro_active",
             active=active,
-            idle_text="Start Pomodoro",
-            active_text=label or "End Pomodoro",
+            idle_text=tr("home_pomodoro_idle"),
+            active_text=label or tr("home_pomodoro_active"),
             owner=self,
         )
 
@@ -1105,8 +1205,8 @@ class HomePage(QWidget):
             self._calib_btn,
             active_flag_attr="_calibration_active",
             active=active,
-            idle_text="Calibrate Focus",
-            active_text=label or "Cancel Calibration",
+            idle_text=tr("home_calibrate_idle"),
+            active_text=label or tr("home_calibrate_active"),
             owner=self,
         )
 
@@ -1116,13 +1216,42 @@ class HomePage(QWidget):
             return
         self._running = running
         if running:
-            self._eq_ring.start_ring("STOP")
+            self._eq_ring.start_ring(tr("ring_stop"))
             self._top_stack.setCurrentIndex(1)
         else:
-            self._eq_ring.stop_ring("START")
+            self._eq_ring.stop_ring(tr("ring_start"))
             self._top_stack.setCurrentIndex(0)
             self._classify_btn.setVisible(False)
         self._apply_layout_scale(force=True)
+
+    def set_language(self, code: str) -> None:
+        """Switch UI language and retranslate the page's static strings."""
+        i18n_set_language(code)
+        self._retranslate()
+
+    def _retranslate(self) -> None:
+        """Re-apply the active language to home page static strings."""
+        self._motto.setText(tr("home_motto"))
+        self._focus_title.setText(tr("home_focus"))
+        self._classify_btn.setText(tr("home_classify"))
+        self._calib_btn.setToolTip(tr("home_calibrate_tip"))
+        self._sync_session_button(
+            self._pomo_btn,
+            active_flag_attr="_pomodoro_active",
+            active=self._pomodoro_active,
+            idle_text=tr("home_pomodoro_idle"),
+            active_text=tr("home_pomodoro_active"),
+            owner=self,
+        )
+        self._sync_session_button(
+            self._calib_btn,
+            active_flag_attr="_calibration_active",
+            active=self._calibration_active,
+            idle_text=tr("home_calibrate_idle"),
+            active_text=tr("home_calibrate_active"),
+            owner=self,
+        )
+        self._eq_ring.set_label(tr("ring_stop") if self._running else tr("ring_start"))
 
     def set_frequency_bands(self, bands: list[float]) -> None:
         """Forward real-time frequency-band amplitudes to the EQ ring."""
@@ -1165,19 +1294,19 @@ class HomePage(QWidget):
         self._focus_bar.setValue(pct)
         self._focus_pct.setText(f"{pct}%")
 
-        theme = THEME_LABELS.get(context, "Neutral")
+        theme = i18n_theme_label(context.value)
         if music_state:
             mood = music_state
         elif pct >= 80:
-            mood = "Deep Focus"
+            mood = tr("mood_deep_focus")
         elif pct >= 60:
-            mood = "In the Zone"
+            mood = tr("mood_in_the_zone")
         elif pct >= 40:
-            mood = "Light Focus"
+            mood = tr("mood_light_focus")
         elif pct >= 20:
-            mood = "Wandering"
+            mood = tr("mood_wandering")
         else:
-            mood = "Distracted"
+            mood = tr("mood_distracted")
 
         self._theme_label.setText(f"{theme}  ·  {mood}")
         self._music_detail.setText(music_detail)
@@ -1190,5 +1319,6 @@ class HomePage(QWidget):
     def set_dark_mode(self, enabled: bool) -> None:
         """Apply dark / light stylesheet on the home page."""
         self._dark = enabled
+        self._eq_ring.set_dark_mode(enabled)
         self._apply_layout_scale(force=True)
         self.update()

@@ -191,6 +191,26 @@ class GodotAudioBackend:
             )
         self._send(payload)
 
+    def playback_position(self) -> float | None:
+        """Godot sidecar has no playback-position interface; phrase-boundary
+        detection therefore falls back to a plain crossfade."""
+        return None
+
+    def fade_out_and_switch(
+        self,
+        path: Path,
+        *,
+        wait_seconds: float,
+        fadeout_seconds: float = 3.0,
+        gap_seconds: float = 0.5,
+        params: AudioParameters | None = None,
+    ) -> None:
+        """Not supported over the TCP API — approximate with a crossfade of
+        the full wait + fadeout + gap duration."""
+        self.crossfade_to_track(
+            path, wait_seconds + fadeout_seconds + gap_seconds, params
+        )
+
     def set_master_volume(self, volume: float) -> None:
         self.master_volume = max(0.0, min(1.0, float(volume)))
         if self._socket is not None:
