@@ -260,6 +260,8 @@ class EqRingWidget(QWidget):
         self._smooth: list[float] = [0.0] * self.N_BARS
         self._targets: list[float] = [0.0] * self.N_BARS
         self._display: list[float] = [0.0] * self.N_BARS
+        # Per-band peak EMA so quiet highs animate as much as bass.
+        self._band_peak: list[float] = [1e-3] * self.N_BARS
         self._smoothness = self.DEFAULT_SMOOTHNESS
         self._apply_smoothness_params(self._smoothness)
         self._timer = QTimer(self)
@@ -298,6 +300,7 @@ class EqRingWidget(QWidget):
         self._active = True
         self._smooth = [0.0] * self.N_BARS
         self._display = [0.0] * self.N_BARS
+        self._band_peak = [1e-3] * self.N_BARS
         self._timer.start(self._TICK_MS)
         self.update()
 
@@ -308,11 +311,60 @@ class EqRingWidget(QWidget):
         self._timer.stop()
         self._smooth = [0.0] * self.N_BARS
         self._display = [0.0] * self.N_BARS
+        self._band_peak = [1e-3] * self.N_BARS
         self.update()
 
     def set_bands(self, bands: list[float]) -> None:
-        clamped = [max(0.0, min(1.0, v)) for v in bands]
-        self._targets = clamped if len(clamped) == self.N_BARS else self._targets
+        if len(bands) != self.N_BARS:
+            return
+        self._targets = self._normalize_ring_bands(bands)
+
+    def _normalize_ring_bands(self, bands: list[float]) -> list[float]:
+        """Level and redistribute spectrum energy evenly around the ring.
+
+        Raw FFT bands pile bass into one contiguous arc (the bottom with the
+        default angle map). Per-band AGC + mild high boost + interleaved
+        placement spread motion around the full edge.
+        """
+        n = self.N_BARS
+        # Mild high-frequency lift so treble isn't drowned by bass.
+        tilted = [
+            max(0.0, float(v)) * (1.0 + 1.35 * (i / max(n - 1, 1)))
+            for i, v in enumerate(bands)
+        ]
+        # Compress dynamic range a bit before AGC.
+        compressed = [v**0.55 for v in tilted]
+
+        leveled: list[float] = []
+        peak_decay = 0.965
+        peak_attack = 0.35
+        for i, v in enumerate(compressed):
+            peak = self._band_peak[i]
+            if v > peak:
+                peak = peak + (v - peak) * peak_attack
+            else:
+                peak = max(1e-3, peak * peak_decay)
+            self._band_peak[i] = peak
+            leveled.append(max(0.0, min(1.0, v / peak)))
+
+        # Weave low / mid / high thirds around the circle so correlated bass
+        # bins are not clustered into a single lobe.
+        return self._interleave_band_thirds(leveled)
+
+    @staticmethod
+    def _interleave_band_thirds(bands: list[float]) -> list[float]:
+        n = len(bands)
+        third = (n + 2) // 3
+        groups = [bands[0:third], bands[third : 2 * third], bands[2 * third :]]
+        out = [0.0] * n
+        idx = 0
+        max_len = max((len(g) for g in groups), default=0)
+        for k in range(max_len):
+            for group in groups:
+                if k < len(group) and idx < n:
+                    out[idx] = group[k]
+                    idx += 1
+        return out
 
     def set_smoothness(self, value: float) -> None:
         """0 = detailed / spiky waveform; 1 = very soft oval-like lobes."""
@@ -454,10 +506,11 @@ class EqRingWidget(QWidget):
             n_bands = self.N_BARS
             n_curve = self._N_CURVE
 
-            # Cosine-interpolated sampling around the ring → C1-smooth outline
+            # Cosine-interpolated sampling around the ring → C1-smooth outline.
+            # Start at top (-π/2); Qt Y grows downward so +sin is bottom.
             outer_pts: list[tuple[float, float]] = []
             for k in range(n_curve):
-                angle = 2.0 * pi * k / n_curve
+                angle = -0.5 * pi + 2.0 * pi * k / n_curve
                 idx_frac = k / n_curve * n_bands
                 i0 = int(idx_frac) % n_bands
                 frac = idx_frac - int(idx_frac)
@@ -475,7 +528,7 @@ class EqRingWidget(QWidget):
             inner_r = r - 2 * scale
             inner_pts: list[tuple[float, float]] = []
             for k in range(n_curve - 1, -1, -1):
-                angle = 2.0 * pi * k / n_curve
+                angle = -0.5 * pi + 2.0 * pi * k / n_curve
                 inner_pts.append((cx + inner_r * cos(angle), cy + inner_r * sin(angle)))
 
             ring_path = QPainterPath()
