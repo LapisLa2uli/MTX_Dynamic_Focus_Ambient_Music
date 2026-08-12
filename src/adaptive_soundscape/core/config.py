@@ -127,7 +127,7 @@ class GenerativeLayersConfig(BaseModel):
 class StemSeparationConfig(BaseModel):
     enabled: bool = True
     api_base_url: str = "http://127.0.0.1:7863"
-    model: str = "htdemucs"
+    model: str = "htdemucs_ft"
     timeout_seconds: float = 600.0
     auto_on_upload: bool = True
     # Dedicated "demucs" env is fine; lifecycle also falls back to "musicgen".
@@ -137,7 +137,7 @@ class StemSeparationConfig(BaseModel):
 
 class SidecarApisConfig(BaseModel):
     startup_timeout_seconds: float = 300.0
-    stop_when_done: bool = True
+    stop_when_done: bool = False
 
 
 class Settings(BaseSettings):

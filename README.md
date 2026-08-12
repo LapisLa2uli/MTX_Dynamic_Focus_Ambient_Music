@@ -211,7 +211,7 @@ python scripts/separate_album_stems.py --force
 
 **Manage Albums → Upload as New Song** also auto-separates when `stem_separation.auto_on_upload` is true and the sidecar is online. Uploading into a single existing stem layer does not re-run Demucs.
 
-Stem map: `drums→rhythm`, `bass→pad`, `other→harmony`, `vocals→melody_a` (high-passed `other` if vocals are near-silent). Config: `stem_separation` in `config/default.yaml` (`api_base_url: http://127.0.0.1:7863`).
+Stem map: `drums→rhythm`, `bass→pad`, `other→harmony`, `vocals→melody_a` (high-passed `other` if vocals are near-silent). Config: `stem_separation` in `config/default.yaml` (`api_base_url: http://127.0.0.1:7863`, default model `htdemucs_ft`). Sidecars stay warm when `sidecar_apis.stop_when_done: false`.
 
 ### Self-hosted MusicGen (offline layer generation)
 
@@ -255,11 +255,25 @@ conda activate MTX
 python scripts/ui_debug_essential.py
 python scripts/ui_debug_focus_distraction.py   # auto-distraction path
 python scripts/ui_debug_effects.py             # Effect response sliders
+python scripts/ui_debug_album_songs.py         # Manage Albums lists generated songs
 ```
 
 ### Generate placeholder tones (optional)
 
 If an album is empty, the app synthesizes a simple loop and migrates it into a song family with layered stubs on startup.
+
+### Fill albums with MusicGen songs
+
+With the MusicGen sidecar available (GPU or `MUSICGEN_STUB=1`):
+
+```powershell
+conda activate MTX
+python scripts/generate_album_songs.py --scenario programming --count 2
+# Seed only (skip Demucs / AI layers):
+python scripts/generate_album_songs.py --scenario creative_design --count 1 --no-separate --no-ai-layers
+```
+
+Defaults favor quality + warm sidecars: `stem_separation.model: htdemucs_ft`, `sidecar_apis.stop_when_done: false`.
 
 ---
 

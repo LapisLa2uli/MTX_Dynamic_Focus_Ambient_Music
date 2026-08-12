@@ -108,7 +108,7 @@ generative_layers:
 stem_separation:
   enabled: true
   api_base_url: "http://127.0.0.1:7863"
-  model: htdemucs
+  model: htdemucs_ft
   timeout_seconds: 600
   auto_on_upload: true
   # Prefer a dedicated "demucs" env; app falls back to "musicgen" if missing.
@@ -117,4 +117,4 @@ stem_separation:
 
 sidecar_apis:
   startup_timeout_seconds: 300
-  stop_when_done: true
+  stop_when_done: false
