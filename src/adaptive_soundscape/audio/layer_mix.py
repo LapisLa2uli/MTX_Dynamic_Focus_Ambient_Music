@@ -88,6 +88,14 @@ def compute_layer_gains(
     return limit_energy(gains, cfg.energy_limit)
 
 
+def apply_break_melody(gains: dict[str, float]) -> dict[str, float]:
+    """Force the lead melody stem to full during a Pomodoro break."""
+    out = dict(gains)
+    if "melody_a" in out:
+        out["melody_a"] = 1.0
+    return out
+
+
 def limit_energy(gains: dict[str, float], limit: float = 1.35) -> dict[str, float]:
     """Soft-cap summed gains so stacked layers do not clip as easily."""
     total = sum(max(0.0, g) for g in gains.values())

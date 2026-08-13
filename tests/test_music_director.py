@@ -313,3 +313,24 @@ def test_debug_songs_hidden_until_enabled(tmp_path: Path):
     director.set_include_debug_songs(False)
     assert director.active_song_id != "ui_debug_mix"
 
+
+def test_break_melody_full_overrides_low_focus(tmp_path: Path):
+    _make_layered_song(tmp_path, "unknown", "unknown_01")
+    backend = FakeBackend()
+    director = MusicDirector(
+        tmp_path,
+        backend,
+        AdaptiveMusicConfig(min_state_seconds=0.0, intensity_smoothing=0.0),
+    )
+    director.set_scenario("unknown", 0.15)
+    director.play()
+    director.update_intensity(0.15)
+    assert backend.gains_history[-1].get("melody_a", 1.0) == 0.0
+    director.set_break_melody_full(True)
+    assert backend.gains_history[-1].get("melody_a") == 1.0
+    director.update_intensity(0.20)
+    assert backend.gains_history[-1].get("melody_a") == 1.0
+    director.set_break_melody_full(False)
+    director.update_intensity(0.15)
+    assert backend.gains_history[-1].get("melody_a", 1.0) == 0.0
+

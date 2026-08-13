@@ -24,7 +24,7 @@ def test_auto_distraction_enter_and_exit(qtbot=None):
     stub.settings = settings
     stub._manual_override = False
     stub.calibration = type("C", (), {"force_aligned": False})()
-    stub.pomodoro = type("P", (), {"in_session_calibration": False})()
+    stub.pomodoro = type("P", (), {"in_session_calibration": False, "in_break": False})()
     stub._auto_distract_active = False
     stub._auto_distract_since = 0.0
     stub._update_auto_distraction = AdaptiveSoundscapeApp._update_auto_distraction.__get__(
@@ -44,3 +44,43 @@ def test_auto_distraction_enter_and_exit(qtbot=None):
     out = stub._update_auto_distraction(WorkContext.PROGRAMMING, 0.70)
     assert stub._auto_distract_active is False
     assert out == WorkContext.PROGRAMMING
+
+
+def test_auto_distraction_skipped_during_break():
+    settings = Settings()
+    settings.cognitive.auto_distraction_enabled = True
+    settings.cognitive.auto_distraction_dwell_seconds = 0.0
+
+    class _Stub:
+        pass
+
+    stub = _Stub()
+    stub.settings = settings
+    stub._manual_override = False
+    stub.calibration = type("C", (), {"force_aligned": False})()
+    stub.pomodoro = type("P", (), {"in_session_calibration": False, "in_break": True})()
+    stub._auto_distract_active = True
+    stub._auto_distract_since = 1.0
+    stub._update_auto_distraction = AdaptiveSoundscapeApp._update_auto_distraction.__get__(
+        stub, AdaptiveSoundscapeApp
+    )
+
+    out = stub._update_auto_distraction(WorkContext.PROGRAMMING, 0.10)
+    assert stub._auto_distract_active is False
+    assert out == WorkContext.PROGRAMMING
+
+
+def test_display_focus_score_during_break():
+    class _Stub:
+        pass
+
+    stub = _Stub()
+    stub._focus_score = 0.21
+    stub.pomodoro = type("P", (), {"in_break": True})()
+    stub._display_focus_score = AdaptiveSoundscapeApp._display_focus_score.__get__(
+        stub, AdaptiveSoundscapeApp
+    )
+    shown = stub._display_focus_score()
+    assert 0.80 <= shown <= 0.90
+    stub.pomodoro = type("P", (), {"in_break": False})()
+    assert stub._display_focus_score() == 0.21

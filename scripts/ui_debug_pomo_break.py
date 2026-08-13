@@ -1,4 +1,4 @@
-"""UI debug: Pomodoro break chime, 10× muffling, Neutral album.
+"""UI debug: Pomodoro break chime, 10× muffling, Neutral album, ~85% focus meter.
 
 ```powershell
 conda activate MTX
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 os.environ.setdefault(
@@ -143,10 +144,51 @@ def main() -> int:
     else:
         ok(f"break cutoff {brk_cut:.0f} Hz vs work-curve {work_cut:.0f} Hz")
 
+    shown = soundscape._display_focus_score()
+    if not (0.80 <= shown <= 0.90):
+        fail(f"break focus display={shown:.2f} expected ~0.85")
+    else:
+        ok(f"break focus display={shown:.0%}")
+    home_pct = soundscape.window.home_page._focus_bar.value()
+    if not (80 <= home_pct <= 90):
+        fail(f"home focus bar={home_pct}% expected 80–90")
+    else:
+        ok(f"home focus bar={home_pct}%")
+    overlay_pct = soundscape._overlay._bar.value()
+    if not (80 <= overlay_pct <= 90):
+        fail(f"overlay focus bar={overlay_pct}% expected 80–90")
+    else:
+        ok(f"overlay focus bar={overlay_pct}%")
+
+    melody = soundscape.director.layer_gains.get("melody_a")
+    if soundscape.director.playback_mode == "layered":
+        if melody is None:
+            fail("layered Neutral song has no melody_a")
+        elif abs(float(melody) - 1.0) > 1e-6:
+            fail(f"break melody_a={melody:.2f} expected 1.0")
+        else:
+            ok("break melody_a at 100%")
+    else:
+        ok("break album is discrete (no melody stem)")
+
+    soundscape.pomodoro.state.phase_ends_at = datetime.now(timezone.utc) - timedelta(
+        seconds=1
+    )
+    prev = soundscape.pomodoro.state.phase
+    nxt = soundscape.pomodoro.tick()
+    soundscape._on_pomodoro_phase_changed(prev, nxt.phase)
+    pump(app, 200)
+    if nxt.phase not in {PomodoroPhase.WORK, PomodoroPhase.SESSION_CALIBRATION}:
+        fail(f"break did not cycle to work: {nxt.phase}")
+    elif not soundscape.pomodoro.state.is_active:
+        fail("pomodoro went idle after break instead of cycling")
+    else:
+        ok(f"break cycled to {nxt.phase.value}")
+
     QTest.mouseClick(click_pomo, Qt.MouseButton.LeftButton)
     pump(app, 250)
-    if soundscape.pomodoro.in_break:
-        fail("pomodoro still in break after cancel")
+    if soundscape.pomodoro.state.is_active:
+        fail(f"pomodoro still {soundscape.pomodoro.state.phase.value} after cancel")
     else:
         ok("pomodoro cancelled; music restored")
 

@@ -3,6 +3,7 @@
 from adaptive_soundscape.audio.layer_mix import (
     LayerCurve,
     LayerMixConfig,
+    apply_break_melody,
     compute_layer_gains,
     limit_energy,
 )
@@ -61,3 +62,15 @@ def test_recovery_boost():
         0.5, available=available, config=cfg, recovery_active=True
     )
     assert gains["recovery"] >= 0.55
+
+
+def test_break_melody_forces_melody_a_full():
+    available = {"pad", "harmony", "melody_a", "rhythm"}
+    low = compute_layer_gains(0.15, available=available)
+    assert low["melody_a"] == 0.0
+    forced = apply_break_melody(low)
+    assert forced["melody_a"] == 1.0
+    assert forced["pad"] == low["pad"]
+    skipped = apply_break_melody({"pad": 0.7})
+    assert "melody_a" not in skipped
+    assert skipped["pad"] == 0.7

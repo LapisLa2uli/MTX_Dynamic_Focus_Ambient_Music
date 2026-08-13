@@ -13,6 +13,7 @@ from adaptive_soundscape.audio.album import is_debug_song, list_songs, pick_rand
 from adaptive_soundscape.audio.layer_mix import (
     LAYER_IDS,
     LayerMixConfig,
+    apply_break_melody,
     compute_layer_gains,
     curves_from_mapping,
 )
@@ -140,6 +141,7 @@ class MusicDirector:
         self._enabled = False
         self._muted = False
         self._debug_layer_override = False
+        self._break_melody_full = False
         self._include_debug_songs = False
         self._debug_layer_gains: dict[str, float] = {
             lid: 0.7 for lid in LAYER_IDS
@@ -507,6 +509,15 @@ class MusicDirector:
         if self._debug_layer_override and self._playback_mode == "layered":
             self._apply_layered_gains()
 
+    def set_break_melody_full(self, enabled: bool) -> None:
+        """Keep melody_a at 100% while a Pomodoro break is active."""
+        enabled = bool(enabled)
+        if self._break_melody_full == enabled:
+            return
+        self._break_melody_full = enabled
+        if self._playback_mode == "layered":
+            self._apply_layered_gains()
+
     def _apply_layered_gains(self) -> None:
         if self._debug_layer_override:
             available = set(self._layer_paths.keys())
@@ -515,29 +526,25 @@ class MusicDirector:
                 for lid in LAYER_IDS
                 if lid in available
             }
-            self._layer_gains = gains
-            if not self._enabled:
-                return
-            try:
-                self.backend.set_layer_gains(gains, min(0.35, self._layer_mix.gain_slew_seconds))
-            except Exception:
-                logger.exception("MusicDirector: set_layer_gains (debug) failed")
-            return
-
-        recovery_active = (
-            time.monotonic() < self._recovery_until and "recovery" in self._layer_paths
-        )
-        gains = compute_layer_gains(
-            self._smoothed,
-            available=set(self._layer_paths.keys()),
-            config=self._layer_mix,
-            recovery_active=recovery_active,
-        )
+            slew = min(0.35, self._layer_mix.gain_slew_seconds)
+        else:
+            recovery_active = (
+                time.monotonic() < self._recovery_until and "recovery" in self._layer_paths
+            )
+            gains = compute_layer_gains(
+                self._smoothed,
+                available=set(self._layer_paths.keys()),
+                config=self._layer_mix,
+                recovery_active=recovery_active,
+            )
+            slew = self._layer_mix.gain_slew_seconds
+        if self._break_melody_full:
+            gains = apply_break_melody(gains)
         self._layer_gains = gains
         if not self._enabled:
             return
         try:
-            self.backend.set_layer_gains(gains, self._layer_mix.gain_slew_seconds)
+            self.backend.set_layer_gains(gains, slew)
         except Exception:
             logger.exception("MusicDirector: set_layer_gains failed")
 

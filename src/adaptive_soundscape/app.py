@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import time
 from pathlib import Path
 
 # Silence all console logging — keep the terminal clean.
@@ -638,6 +640,9 @@ class AdaptiveSoundscapeApp:
         if self.calibration.force_aligned or self.pomodoro.in_session_calibration:
             self._auto_distract_active = False
             return classified_ctx
+        if self.pomodoro.in_break:
+            self._auto_distract_active = False
+            return classified_ctx
 
         import time as _time
 
@@ -779,14 +784,17 @@ class AdaptiveSoundscapeApp:
 
     def _apply_break_music(self) -> None:
         """Force the Neutral (unknown) album for the whole break."""
+        self.director.set_break_melody_full(True)
         decision = self.transition.force_profile(
             WorkContext.UNKNOWN, self._current_focus
         )
         self._current_context = WorkContext.UNKNOWN
         if self._audio_running:
             self._apply_audio(decision)
+        self._refresh_ui()
 
     def _restore_music_after_break(self) -> None:
+        self.director.set_break_melody_full(False)
         ctx = self._classified_context
         if not self._manual_override:
             ctx = self._update_auto_distraction(ctx, self._focus_score)
@@ -794,6 +802,7 @@ class AdaptiveSoundscapeApp:
         self._current_context = ctx
         if self._audio_running:
             self._apply_audio(decision)
+        self._refresh_ui()
 
     def _on_calibrate_requested(self, task_profile: str) -> None:
         profile = task_profile or "unknown"
@@ -1205,6 +1214,13 @@ class AdaptiveSoundscapeApp:
     def _on_focus(self, event: FocusUpdated) -> None:
         del event
 
+    def _display_focus_score(self) -> float:
+        """UI-only focus reading. Real FLI stays in ``_focus_score``."""
+        if not self.pomodoro.in_break:
+            return self._focus_score
+        wander = 0.03 * math.sin(time.monotonic() * 0.35)
+        return max(0.0, min(1.0, 0.85 + wander))
+
     def _refresh_ui(self, profile_name: str = "Neutral") -> None:
         state = self.director.active_state
         detail_parts = [f"Mode: {self.director.playback_mode}"]
@@ -1222,7 +1238,7 @@ class AdaptiveSoundscapeApp:
         self.window.update_status(
             context=self._current_context,
             focus_state=self._current_focus,
-            focus_score=self._focus_score,
+            focus_score=self._display_focus_score(),
             profile_name=profile_name,
             music_state=_MUSIC_STATE_LABELS.get(state, state.value),
             music_detail=" · ".join(detail_parts),
@@ -1231,7 +1247,7 @@ class AdaptiveSoundscapeApp:
         profile_id = self._current_context.value
         if profile_id in self._status_colors:
             self.window.update_status_background(profile_id)
-        self._overlay.set_focus(self._focus_score)
+        self._overlay.set_focus(self._display_focus_score())
         self._overlay.set_running(self._audio_running)
         self._overlay.set_dark_mode(self.window.is_dark_mode)
         self._refresh_album_songs()
