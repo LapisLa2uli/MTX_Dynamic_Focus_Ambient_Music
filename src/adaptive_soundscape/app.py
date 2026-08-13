@@ -706,6 +706,7 @@ class AdaptiveSoundscapeApp:
         if self._debug_focus_override and self._audio_running:
             # Snap director smoothing so the audition responds immediately.
             self.director.force_intensity(self._debug_focus_score)
+        self._refresh_ui()
 
     def _on_debug_layer_override(self, enabled: bool) -> None:
         self._debug_layer_override = bool(enabled)
@@ -715,6 +716,7 @@ class AdaptiveSoundscapeApp:
             dict(gains) if isinstance(gains, dict) else None,
         )
         self._sync_debug_songs()
+        self._refresh_ui()
 
     def _on_debug_layer_gain(self, layer_id: str, gain: float) -> None:
         self.director.set_debug_layer_gain(layer_id, gain)
@@ -1242,6 +1244,7 @@ class AdaptiveSoundscapeApp:
             profile_name=profile_name,
             music_state=_MUSIC_STATE_LABELS.get(state, state.value),
             music_detail=" · ".join(detail_parts),
+            debug=self._debug_mode_on(),
         )
         # Update background colour based on current status
         profile_id = self._current_context.value

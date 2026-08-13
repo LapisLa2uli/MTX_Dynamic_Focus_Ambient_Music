@@ -415,6 +415,7 @@ class MainWindow(QMainWindow):
         profile_name: str,
         music_state: str = "",
         music_detail: str = "",
+        debug: bool = False,
     ) -> None:
         del focus_state, profile_name
         from adaptive_soundscape.ui.settings_page import DEFAULT_STATUS_COLORS
@@ -428,6 +429,7 @@ class MainWindow(QMainWindow):
             music_state=music_state,
             music_detail=music_detail,
             theme_color=theme_color,
+            debug=debug,
         )
 
     @property

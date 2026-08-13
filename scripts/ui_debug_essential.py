@@ -215,6 +215,26 @@ def home_playback_and_pomodoro(soundscape: AdaptiveSoundscapeApp, app: QApplicat
     else:
         fail(f"audio did not start (was {before})")
 
+    soundscape._tick()
+    pump(app, 80)
+    if soundscape._debug_mode_on():
+        if not home._music_detail.isVisible():
+            fail("music detail hidden while debug is on")
+        else:
+            ok("music detail shown in debug mode")
+    soundscape._debug_focus_override = False
+    soundscape._debug_layer_override = False
+    soundscape._refresh_ui()
+    pump(app, 50)
+    if home._music_detail.isVisible():
+        fail("music detail shown outside debug")
+    else:
+        ok("music detail hidden outside debug")
+    if not home._theme_label.isVisible() or not home._theme_label.text().strip():
+        fail("working context line missing")
+    else:
+        ok(f"context line kept: {home._theme_label.text()}")
+
     # Pomodoro start / cancel
     click(home._pomo_btn, app)
     pump(app, 200)

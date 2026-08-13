@@ -1014,6 +1014,7 @@ class HomePage(QWidget):
         self._music_detail.setObjectName("descriptionLabel")
         self._music_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._music_detail.setWordWrap(True)
+        self._music_detail.setVisible(False)
         self._status_layout.addWidget(self._music_detail)
 
         song_row = QHBoxLayout()
@@ -1449,6 +1450,7 @@ class HomePage(QWidget):
         music_state: str = "",
         music_detail: str = "",
         theme_color: str = "",
+        debug: bool = False,
     ) -> None:
         """Refresh focus UI (while running) and always retint the aurora."""
         color = theme_color or DEFAULT_STATUS_COLORS.get(
@@ -1482,7 +1484,7 @@ class HomePage(QWidget):
 
         self._theme_label.setText(f"{theme}  ·  {mood}")
         self._music_detail.setText(music_detail)
-        self._music_detail.setVisible(bool(music_detail))
+        self._music_detail.setVisible(bool(debug and music_detail))
 
     def set_album_songs(self, songs: list[str], current: str | None) -> None:
         """Populate the in-album song picker (hidden when idle or empty)."""

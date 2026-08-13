@@ -244,7 +244,7 @@ Or use **Manage Albums → Generate AI Layers**. Config: `generative_layers` in 
 - **Start Audio** — glass EQ-ring on Home (scales with window; capped on fullscreen so session buttons stay visible). A **mini HUD** stays on top (top-right, draggable/resizable) with play/stop, focus, and a large Pomodoro countdown.
 - **Confirm Classification** — while playing, opens a **right-side list of unclassified windows** with suggested categories. Edit and **Save** each one individually (stored in `config/user_context_mappings.json`).
 - **Album song** — while playing, Home shows ‹ / song / › to jump within the current scenario album.
-- **Music State** — Calm / Focus / Deep Focus (+ mode, song, top layer gains).
+- **Music State** — Calm / Focus / Deep Focus on the context line. Mode, song, and layer gains show only while **Settings → Debug** is on.
 - **Pomodoro / Calibrate** — home session chips. Work and break **cycle until you end the Pomodoro**. Each phase plays a distinct notification chime. A break **switches to the Neutral album**, muffles about **10× more** (LPF cutoff ÷ 10), holds the focus meter around **85%**, and plays the **melody at 100%**. While a Pomodoro runs, a diminishing countdown arc **fades in** between the glass button and the waveform.
 - **Upload** — SWAP a mix into a scenario album; auto Demucs + optional MusicGen layers.
 - **Settings → Effect response** — muffling aggressiveness (1×–5×), music intensity lag, layer blend time, focus bar lag, **context blend time** (equal-power crossfade when switching work soundscapes). Live-adjustable and saved to `config/user_ui_settings.json`.

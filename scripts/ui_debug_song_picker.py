@@ -125,6 +125,11 @@ def main() -> int:
     else:
         ok("debug mixes excluded while debug is off")
 
+    if home._music_detail.isVisible():
+        fail("music detail shown while debug is off")
+    else:
+        ok("music detail hidden while debug is off")
+
     if combo.count() >= 2:
         before = soundscape.director.active_song_id
         click(home._song_next, app)
@@ -152,6 +157,10 @@ def main() -> int:
         ok(f"debug mixes listed while debug on: {debug_ids}")
     else:
         ok("no debug mixes on disk (gating still applied)")
+    if not home._music_detail.isVisible():
+        fail("music detail hidden while debug is on")
+    else:
+        ok(f"music detail in debug: {home._music_detail.text()}")
 
     click(soundscape.window._nav_buttons[2], app)
     click(soundscape.window.settings_page._debug_layer_toggle, app)
@@ -163,6 +172,10 @@ def main() -> int:
         fail(f"debug mixes still listed after debug off: {leaked}")
     else:
         ok("debug mixes hidden after debug off")
+    if home._music_detail.isVisible():
+        fail("music detail still shown after debug off")
+    else:
+        ok("music detail hidden after debug off")
 
     font_px = overlay._pomo_time.font().pointSize()
     # Stylesheet font-size may not change QFont.pointSize; check min height / stylesheet.
