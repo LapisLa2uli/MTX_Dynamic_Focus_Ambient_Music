@@ -18,6 +18,7 @@ from PyQt6.QtGui import (
     QRadialGradient,
 )
 from PyQt6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -114,6 +115,38 @@ QPushButton#pomoBtn[active="true"], QPushButton#calibBtn[active="true"] {{
     color: #e8eefc;
     background-color: rgba(91, 141, 239, 0.22);
 }}
+QComboBox#songCombo {{
+    background-color: #2a2a36;
+    border: 1px solid #555566;
+    border-radius: {px(10, 8)};
+    padding: {px(4, 3)} {px(10, 8)};
+    color: #d0d0dc;
+    font-size: {px(11, 9)};
+    font-weight: 600;
+    min-width: {px(140, 110)};
+    max-width: {px(240, 180)};
+}}
+QComboBox#songCombo::drop-down {{ border: none; width: {px(18, 14)}; }}
+QComboBox#songCombo QAbstractItemView {{
+    background-color: #25252e;
+    color: #e8e8ec;
+    selection-background-color: #5b8def;
+}}
+QPushButton#songNav {{
+    background-color: #2a2a36;
+    border: 1px solid #555566;
+    border-radius: {px(10, 8)};
+    color: #c8c8d4;
+    font-size: {px(13, 11)};
+    font-weight: 700;
+    min-width: {px(28, 24)};
+    max-width: {px(32, 28)};
+    min-height: {px(28, 24)};
+}}
+QPushButton#songNav:hover {{
+    border-color: #5b8def;
+    color: #e8eefc;
+}}
 """
     return f"""
 QWidget#homePage {{
@@ -186,6 +219,38 @@ QPushButton#pomoBtn[active="true"], QPushButton#calibBtn[active="true"] {{
     min-height: {px(36, 24)};
     color: #2a4f9e;
     background-color: rgba(61, 111, 212, 0.14);
+}}
+QComboBox#songCombo {{
+    background-color: #eaeaef;
+    border: 1px solid #c0c0cc;
+    border-radius: {px(10, 8)};
+    padding: {px(4, 3)} {px(10, 8)};
+    color: #2a2a36;
+    font-size: {px(11, 9)};
+    font-weight: 600;
+    min-width: {px(140, 110)};
+    max-width: {px(240, 180)};
+}}
+QComboBox#songCombo::drop-down {{ border: none; width: {px(18, 14)}; }}
+QComboBox#songCombo QAbstractItemView {{
+    background-color: #ffffff;
+    color: #1a1a22;
+    selection-background-color: #5b8def;
+}}
+QPushButton#songNav {{
+    background-color: #eaeaef;
+    border: 1px solid #c0c0cc;
+    border-radius: {px(10, 8)};
+    color: #505060;
+    font-size: {px(13, 11)};
+    font-weight: 700;
+    min-width: {px(28, 24)};
+    max-width: {px(32, 28)};
+    min-height: {px(28, 24)};
+}}
+QPushButton#songNav:hover {{
+    border-color: #3d6fd4;
+    color: #3d6fd4;
 }}
 """
 
@@ -298,6 +363,7 @@ class EqRingWidget(QWidget):
         self._apply_smoothness_params(self._smoothness)
         self._pomo_active = False
         self._pomo_remaining = 0.0  # 1 = full ring, 0 = empty
+        self._pomo_fade = 0.0
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -343,10 +409,12 @@ class EqRingWidget(QWidget):
         self._running = False
         self._label = label
         self._active = False
-        self._timer.stop()
         self._smooth = [0.0] * self.N_BARS
         self._display = [0.0] * self.N_BARS
         self._band_peak = [1e-3] * self.N_BARS
+        if self._pomo_fade <= 0.02 and not self._pomo_active:
+            self._timer.stop()
+        self.update()
 
     def set_label(self, label: str) -> None:
         """Update the centre label without disturbing the ring animation."""
@@ -417,10 +485,15 @@ class EqRingWidget(QWidget):
     def set_pomodoro_progress(self, remaining: float, *, active: bool) -> None:
         """Draw a diminishing countdown between the glass edge and the waveform."""
         rem = max(0.0, min(1.0, float(remaining)))
+        turning_on = bool(active) and not self._pomo_active
         if self._pomo_active == bool(active) and abs(self._pomo_remaining - rem) < 0.002:
             return
         self._pomo_active = bool(active)
         self._pomo_remaining = rem
+        if turning_on:
+            self._pomo_fade = max(self._pomo_fade, 0.02)
+        if not self._timer.isActive():
+            self._timer.start(self._TICK_MS)
         self.update()
 
     def set_smoothness(self, value: float) -> None:
@@ -516,6 +589,18 @@ class EqRingWidget(QWidget):
         return [max(0.0, v) for v in recon]
 
     def _tick(self) -> None:
+        fade_target = 1.0 if self._pomo_active else 0.0
+        if abs(self._pomo_fade - fade_target) > 0.012:
+            self._pomo_fade += (fade_target - self._pomo_fade) * 0.10
+        else:
+            self._pomo_fade = fade_target
+
+        if not self._running:
+            self.update()
+            if self._pomo_fade <= 0.02 and not self._pomo_active:
+                self._timer.stop()
+            return
+
         a = self._smooth_alpha
         n = self.N_BARS
         for i in range(n):
@@ -707,10 +792,14 @@ class EqRingWidget(QWidget):
         rect = QRectF(cx - mid, cy - mid, 2 * mid, 2 * mid)
         p.save()
         p.setBrush(Qt.BrushStyle.NoBrush)
-        track_a = 36 if self._dark else 48
+        fade = max(0.0, min(1.0, self._pomo_fade))
+        if fade < 0.02:
+            p.restore()
+            return
+        track_a = int((36 if self._dark else 48) * fade)
         track = QPen(QColor(255, 255, 255, track_a) if self._dark else QColor(40, 40, 55, 40))
         if not self._dark:
-            track.setColor(QColor(40, 44, 62, 42))
+            track.setColor(QColor(40, 44, 62, int(42 * fade)))
         track.setWidthF(width * 0.72)
         track.setCapStyle(Qt.PenCapStyle.RoundCap)
         p.setPen(track)
@@ -718,12 +807,12 @@ class EqRingWidget(QWidget):
         if self._pomo_active and self._pomo_remaining > 0.004:
             span = 360.0 * self._pomo_remaining
             amb = self._ambient
-            glow = QColor(amb.red(), amb.green(), amb.blue(), 70)
+            glow = QColor(amb.red(), amb.green(), amb.blue(), int(70 * fade))
             core = QColor(
                 min(255, amb.red() + 40),
                 min(255, amb.green() + 50),
                 min(255, amb.blue() + 80),
-                235,
+                int(235 * fade),
             )
             glow_pen = QPen(glow)
             glow_pen.setWidthF(width * 1.55)
@@ -832,6 +921,7 @@ class HomePage(QWidget):
     pomodoro_cancel_requested = pyqtSignal()
     calibrate_requested = pyqtSignal(str)
     calibrate_cancel_requested = pyqtSignal()
+    song_chosen = pyqtSignal(str)
 
     # Design reference for responsive layout (content area ~590×520 at min window)
     _REF_W = 590.0
@@ -925,6 +1015,31 @@ class HomePage(QWidget):
         self._music_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._music_detail.setWordWrap(True)
         self._status_layout.addWidget(self._music_detail)
+
+        song_row = QHBoxLayout()
+        song_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        song_row.setSpacing(6)
+        self._song_prev = QPushButton("‹")
+        self._song_prev.setObjectName("songNav")
+        self._song_prev.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._song_prev.clicked.connect(lambda: self._step_song(-1))
+        self._song_combo = QComboBox()
+        self._song_combo.setObjectName("songCombo")
+        self._song_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._song_combo.currentIndexChanged.connect(self._on_song_combo)
+        self._song_next = QPushButton("›")
+        self._song_next.setObjectName("songNav")
+        self._song_next.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._song_next.clicked.connect(lambda: self._step_song(1))
+        song_row.addWidget(self._song_prev)
+        song_row.addWidget(self._song_combo)
+        song_row.addWidget(self._song_next)
+        self._song_row_host = QWidget()
+        self._song_row_host.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self._song_row_host.setLayout(song_row)
+        self._song_row_host.setVisible(False)
+        self._status_layout.addWidget(self._song_row_host)
+        self._song_ids: list[str] = []
 
         self._top_stack.addWidget(status_w)  # index 1
 
@@ -1278,6 +1393,7 @@ class HomePage(QWidget):
             self._eq_ring.stop_ring(tr("ring_start"))
             self._top_stack.setCurrentIndex(0)
             self._classify_btn.setVisible(False)
+            self._song_row_host.setVisible(False)
         self._apply_layout_scale(force=True)
 
     def set_language(self, code: str) -> None:
@@ -1367,6 +1483,44 @@ class HomePage(QWidget):
         self._theme_label.setText(f"{theme}  ·  {mood}")
         self._music_detail.setText(music_detail)
         self._music_detail.setVisible(bool(music_detail))
+
+    def set_album_songs(self, songs: list[str], current: str | None) -> None:
+        """Populate the in-album song picker (hidden when idle or empty)."""
+        names = [str(s) for s in songs if s]
+        show = bool(self._running and names)
+        self._song_row_host.setVisible(show)
+        if names == self._song_ids:
+            if current and self._song_combo.currentData() != current:
+                idx = self._song_combo.findData(current)
+                if idx >= 0:
+                    self._song_combo.blockSignals(True)
+                    self._song_combo.setCurrentIndex(idx)
+                    self._song_combo.blockSignals(False)
+            return
+        self._song_ids = names
+        self._song_combo.blockSignals(True)
+        self._song_combo.clear()
+        for name in names:
+            self._song_combo.addItem(name.replace("_", " "), name)
+        if current:
+            idx = self._song_combo.findData(current)
+            if idx >= 0:
+                self._song_combo.setCurrentIndex(idx)
+        self._song_combo.blockSignals(False)
+
+    def _on_song_combo(self, index: int) -> None:
+        if index < 0:
+            return
+        song_id = self._song_combo.itemData(index)
+        if isinstance(song_id, str) and song_id:
+            self.song_chosen.emit(song_id)
+
+    def _step_song(self, delta: int) -> None:
+        n = self._song_combo.count()
+        if n <= 1:
+            return
+        nxt = (self._song_combo.currentIndex() + delta) % n
+        self._song_combo.setCurrentIndex(nxt)
 
     # ------------------------------------------------------------------
     # Theme switching

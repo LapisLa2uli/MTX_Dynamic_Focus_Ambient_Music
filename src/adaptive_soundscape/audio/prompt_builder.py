@@ -153,8 +153,8 @@ def build_layer_prompt(
     hint = _LAYER_HINTS.get(layer_id, "soft instrumental ambient layer, loopable")
     band = intensity_band_for_layer(layer_id)
     prompt = (
-        f"{style}; {hint}; {bpm:.0f} BPM; {bars_per_loop} bars; "
-        f"exactly loopable {loop_seconds:.2f} seconds; "
+        f"{style}; {hint}; locked to {bpm:.0f} BPM (same tempo as the song mix); "
+        f"{bars_per_loop} bars; exactly loopable {loop_seconds:.2f} seconds; "
         f"{_UNIVERSAL}; intensity={band}"
     )
     return BuiltPrompt(

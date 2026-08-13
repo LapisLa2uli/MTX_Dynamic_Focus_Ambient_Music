@@ -10,6 +10,7 @@ from adaptive_soundscape.audio.album import (
     add_track,
     delete_track,
     ensure_albums,
+    is_debug_song,
     list_songs,
     list_tracks,
     migrate_flat_assets_to_albums,
@@ -78,3 +79,49 @@ def test_add_and_delete_intensity_track(tmp_path: Path):
     )
     delete_track(dest)
     assert not dest.exists()
+
+
+def test_debug_songs_excluded_from_rotation(tmp_path: Path):
+    src = tmp_path / "mix.wav"
+    _write_sine_wav(src)
+    add_track(tmp_path, "programming", src, song_id="programming_gen_01")
+    add_track(tmp_path, "programming", src, song_id="ui_debug_mix")
+    names = {p.name for p in list_songs(tmp_path, "programming")}
+    assert "programming_gen_01" in names
+    assert "ui_debug_mix" not in names
+    assert is_debug_song("ui_debug_mix")
+    assert is_debug_song("debug_mix_01")
+    debug_names = {p.name for p in list_songs(tmp_path, "programming", include_debug=True)}
+    assert "ui_debug_mix" in debug_names
+    picked = pick_random_song(tmp_path, "programming")
+    assert picked is not None
+    assert picked.name == "programming_gen_01"
+
+
+def test_add_track_stores_bpm(tmp_path: Path):
+    src = tmp_path / "mix.wav"
+    _write_sine_wav(src)
+    dest = add_track(tmp_path, "scientific", src, song_id="scientific_gen_01", bpm=68)
+    manifest = load_manifest(dest.parent.parent)
+    assert manifest is not None
+    assert manifest.bpm == 68.0
+
+
+def test_sync_song_tempo_keeps_loop_seconds(tmp_path: Path):
+    from adaptive_soundscape.audio.generate_layers import sync_song_tempo
+
+    src = tmp_path / "mix.wav"
+    _write_sine_wav(src)
+    dest = add_track(
+        tmp_path, "reading_writing", src, song_id="reading_writing_gen_01", bpm=120
+    )
+    song = dest.parent.parent
+    manifest = load_manifest(song)
+    assert manifest is not None
+    loop = manifest.loop_seconds
+    bpm = sync_song_tempo(song, "reading_writing")
+    assert bpm == 62.0
+    updated = load_manifest(song)
+    assert updated is not None
+    assert updated.bpm == 62.0
+    assert updated.loop_seconds == loop

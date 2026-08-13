@@ -169,6 +169,7 @@ def main(argv: list[str] | None = None) -> int:
                             wav_path,
                             intensity=MusicIntensity.FOCUS,
                             song_id=song_id,
+                            bpm=bpm,
                         )
                     song_dir = dest.parent.parent
                     created.append(song_dir)

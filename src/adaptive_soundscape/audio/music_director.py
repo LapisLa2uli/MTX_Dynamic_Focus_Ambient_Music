@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from adaptive_soundscape.audio.album import pick_random_song
+from adaptive_soundscape.audio.album import is_debug_song, list_songs, pick_random_song
 from adaptive_soundscape.audio.layer_mix import (
     LAYER_IDS,
     LayerMixConfig,
@@ -140,6 +140,7 @@ class MusicDirector:
         self._enabled = False
         self._muted = False
         self._debug_layer_override = False
+        self._include_debug_songs = False
         self._debug_layer_gains: dict[str, float] = {
             lid: 0.7 for lid in LAYER_IDS
         }
@@ -242,7 +243,11 @@ class MusicDirector:
 
         exclude = self._song_dir
         song = pick_random_song(
-            self.assets_dir, profile_id, exclude=exclude, rng=self._rng
+            self.assets_dir,
+            profile_id,
+            exclude=exclude,
+            rng=self._rng,
+            include_debug=self._include_debug_songs,
         )
         self._song_dir = song
         self._last_track_by_state.clear()
@@ -252,6 +257,55 @@ class MusicDirector:
         self._active_track_id = None
         self._recovery_until = 0.0
         self._was_deep = False
+        if focus_score is not None:
+            self._smoothed = max(0.0, min(1.0, focus_score))
+        desired = self._map_score_to_state(self._smoothed, self._active_state)
+        self._active_state = desired
+        self._requested_state = desired
+        self._state_since = time.monotonic()
+        self._request_since = self._state_since
+        self._resolve_playback_mode()
+        if self._enabled:
+            if self._playback_mode == "layered":
+                self._load_layered(force=False, phrase_switch=True)
+            else:
+                self._transition_to(desired, force=False)
+
+    def album_song_ids(self, profile_id: str | None = None) -> list[str]:
+        pid = profile_id or self._scenario or "unknown"
+        return [
+            p.name
+            for p in list_songs(
+                self.assets_dir, pid, include_debug=self._include_debug_songs
+            )
+        ]
+
+    def set_include_debug_songs(self, enabled: bool) -> None:
+        """Allow ui_debug_* mixes in rotation only while Settings debug is on."""
+        was = self._include_debug_songs
+        self._include_debug_songs = bool(enabled)
+        if was and not self._include_debug_songs:
+            if self._song_dir is not None and is_debug_song(self._song_dir):
+                # Drop the debug family so set_scenario cannot keep it.
+                self._song_dir = None
+                self.set_scenario(self._scenario, self._smoothed)
+
+    def set_song(self, song_id: str, *, focus_score: float | None = None) -> None:
+        """Crossfade to a named song in the current scenario album."""
+        pid = self._scenario or "unknown"
+        target = self.assets_dir / pid / song_id
+        if not target.is_dir():
+            logger.warning("MusicDirector: song not found %s/%s", pid, song_id)
+            return
+        if not self._include_debug_songs and is_debug_song(target):
+            logger.info("MusicDirector: skipping debug song %s (debug mode off)", song_id)
+            return
+        if self._song_dir is not None and target.resolve() == self._song_dir.resolve():
+            return
+        self._song_dir = target
+        self._last_track_by_state.clear()
+        self._active_track_id = None
+        self._recovery_until = 0.0
         if focus_score is not None:
             self._smoothed = max(0.0, min(1.0, focus_score))
         desired = self._map_score_to_state(self._smoothed, self._active_state)

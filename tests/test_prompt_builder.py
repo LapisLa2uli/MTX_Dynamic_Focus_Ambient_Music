@@ -11,6 +11,7 @@ def test_texture_prompt_contains_constraints():
         loop_seconds=27.428,
     )
     assert "70 BPM" in built.prompt
+    assert "same tempo as the song mix" in built.prompt
     assert "27.43" in built.prompt or "27.428" in built.prompt
     assert "texture" in built.prompt.lower() or "sparkle" in built.prompt.lower()
     assert built.intensity_band == "high"

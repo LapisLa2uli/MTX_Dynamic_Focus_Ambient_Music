@@ -36,13 +36,30 @@ def album_dir(assets_dir: Path, profile_id: str) -> Path:
     return assets_dir / profile_id
 
 
-def list_songs(assets_dir: Path, profile_id: str) -> list[Path]:
+def is_debug_song(name: str | Path) -> bool:
+    """True for harness / debug mixes that should stay out of normal rotation."""
+    stem = name.name if isinstance(name, Path) else str(name)
+    lowered = stem.lower()
+    return (
+        lowered.startswith("ui_debug")
+        or lowered.startswith("debug_")
+        or "_debug_" in lowered
+        or "debug_mix" in lowered
+    )
+
+
+def list_songs(
+    assets_dir: Path, profile_id: str, *, include_debug: bool = False
+) -> list[Path]:
     """Return song-family directories (with manifests) in a scenario album."""
-    return [
+    songs = [
         d
         for d in song_dirs(assets_dir, profile_id)
         if (d / MANIFEST_NAME).is_file() or any(d.iterdir())
     ]
+    if include_debug:
+        return songs
+    return [d for d in songs if not is_debug_song(d)]
 
 
 def list_tracks(assets_dir: Path, profile_id: str) -> list[Path]:
@@ -86,9 +103,10 @@ def pick_random_song(
     *,
     exclude: Path | None = None,
     rng: random.Random | None = None,
+    include_debug: bool = False,
 ) -> Path | None:
     """Pick a random song-family directory from the scenario album."""
-    songs = list_songs(assets_dir, profile_id)
+    songs = list_songs(assets_dir, profile_id, include_debug=include_debug)
     if not songs:
         return None
     chooser = rng or random
@@ -149,6 +167,7 @@ def add_track(
     *,
     intensity: MusicIntensity = MusicIntensity.FOCUS,
     song_id: str | None = None,
+    bpm: float | None = None,
 ) -> Path:
     """
     Add audio into a song family intensity bucket.
@@ -204,6 +223,8 @@ def add_track(
         track_id = dest.stem
         if not any(t.id == track_id for t in bucket.tracks):
             bucket.tracks.append(TrackEntry(id=track_id, src=rel))
+    if bpm is not None and bpm > 1.0:
+        manifest.bpm = float(bpm)
     save_manifest(song_dir, manifest)
     logger.info("Added album track %s → %s", source.name, dest)
     return dest

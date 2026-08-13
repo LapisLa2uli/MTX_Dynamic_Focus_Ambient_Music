@@ -93,12 +93,17 @@ def main() -> int:
         fail("overlay did not move")
     else:
         ok("overlay is movable")
-    overlay.resize(260, 110)
+    overlay.resize(268, 116)
     pump(app, 80)
-    if overlay.width() < 240:
+    if overlay.width() < 250:
         fail(f"overlay resize failed w={overlay.width()}")
     else:
         ok("overlay is resizable")
+
+    if "font-size: 24px" not in overlay.styleSheet():
+        fail("mini HUD timer stylesheet is not 24px")
+    else:
+        ok("mini HUD timer is 24px")
 
     ring = soundscape.window.home_page._eq_ring
     cx, cy, r, gap, ext = ring._geom()
@@ -122,6 +127,16 @@ def main() -> int:
             fail("eq ring pomo inactive")
         else:
             ok("diminishing pomo edge armed on EQ ring")
+        pump(app, 400)
+        if ring._pomo_fade < 0.35:
+            fail(f"pomo ring fade-in too low: {ring._pomo_fade:.2f}")
+        else:
+            ok(f"pomo ring faded in ({ring._pomo_fade:.2f})")
+        time_text = overlay._pomo_time.text()
+        if ":" not in time_text:
+            fail(f"overlay timer text={time_text!r}")
+        else:
+            ok(f"overlay timer {time_text}")
 
     click(soundscape.window.home_page._pomo_btn, app)
     pump(app, 200)

@@ -11,7 +11,7 @@ import numpy as np
 
 from adaptive_soundscape.audio.music_manifest import LayerEntry, load_manifest, save_manifest
 from adaptive_soundscape.audio.musicgen_client import MusicGenClient, write_generation_meta
-from adaptive_soundscape.audio.prompt_builder import build_layer_prompt
+from adaptive_soundscape.audio.prompt_builder import build_layer_prompt, scenario_bpm
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,19 @@ def validate_wav_bytes(
     return duration, peak
 
 
+def sync_song_tempo(song_dir: Path, scenario: str) -> float:
+    """Write the scenario BPM onto the manifest; keep existing loop_seconds."""
+    manifest = load_manifest(song_dir)
+    if manifest is None:
+        raise FileNotFoundError(f"No manifest in {song_dir}")
+    bpm = scenario_bpm(scenario)
+    if abs(float(manifest.bpm) - bpm) > 0.05:
+        manifest.bpm = bpm
+        save_manifest(song_dir, manifest)
+        logger.info("Synced %s/%s bpm → %.1f", scenario, song_dir.name, bpm)
+    return float(manifest.bpm)
+
+
 def generate_and_install_layer(
     song_dir: Path,
     *,
@@ -68,13 +81,14 @@ def generate_and_install_layer(
     model_size: str = "small",
     seed: int = 0,
 ) -> Path:
+    bpm = sync_song_tempo(song_dir, scenario)
     manifest = load_manifest(song_dir)
     if manifest is None:
         raise FileNotFoundError(f"No manifest in {song_dir}")
     built = build_layer_prompt(
         scenario=scenario,
         layer_id=layer_id,
-        bpm=manifest.bpm,
+        bpm=bpm,
         loop_seconds=manifest.loop_seconds,
         bars_per_loop=manifest.bars_per_loop,
     )
@@ -82,7 +96,7 @@ def generate_and_install_layer(
         prompt=built.prompt,
         negative_prompt=built.negative_prompt,
         duration_seconds=manifest.loop_seconds,
-        bpm=manifest.bpm,
+        bpm=bpm,
         seed=seed,
         model_size=model_size,
     )

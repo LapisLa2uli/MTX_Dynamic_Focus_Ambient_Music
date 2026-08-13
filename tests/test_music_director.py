@@ -269,3 +269,47 @@ def test_set_scenario_same_profile_keeps_song(tmp_path: Path):
     assert backend.gains_history
     assert backend.gains_history[-1].get("melody_a", 0) > 0.5
 
+
+def test_set_song_switches_family(tmp_path: Path):
+    _make_song(tmp_path, "programming", "programming_01")
+    _make_song(tmp_path, "programming", "programming_02")
+    backend = FakeBackend()
+    director = MusicDirector(
+        tmp_path,
+        backend,
+        AdaptiveMusicConfig(min_state_seconds=0.0, intensity_smoothing=0.0),
+        rng=__import__("random").Random(1),
+    )
+    director.set_scenario("programming", 0.5)
+    director.play()
+    other = (
+        "programming_02"
+        if director.active_song_id == "programming_01"
+        else "programming_01"
+    )
+    director.set_song(other, focus_score=0.5)
+    assert director.active_song_id == other
+
+
+def test_debug_songs_hidden_until_enabled(tmp_path: Path):
+    _make_song(tmp_path, "programming", "programming_01")
+    _make_song(tmp_path, "programming", "ui_debug_mix")
+    backend = FakeBackend()
+    director = MusicDirector(
+        tmp_path,
+        backend,
+        AdaptiveMusicConfig(min_state_seconds=0.0, intensity_smoothing=0.0),
+        rng=__import__("random").Random(0),
+    )
+    director.set_scenario("programming", 0.5)
+    assert director.active_song_id == "programming_01"
+    assert "ui_debug_mix" not in director.album_song_ids()
+    director.set_song("ui_debug_mix")
+    assert director.active_song_id == "programming_01"
+    director.set_include_debug_songs(True)
+    assert "ui_debug_mix" in director.album_song_ids()
+    director.set_song("ui_debug_mix")
+    assert director.active_song_id == "ui_debug_mix"
+    director.set_include_debug_songs(False)
+    assert director.active_song_id != "ui_debug_mix"
+

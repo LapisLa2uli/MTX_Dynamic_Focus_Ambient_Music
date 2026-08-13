@@ -232,18 +232,22 @@ Then from MTX:
 ```powershell
 conda activate MTX
 python scripts/generate_intensity_layers.py --scenario programming --song programming_01
+python scripts/generate_intensity_layers.py --all --force --layers texture,melody_b
 ```
+
+`--all --force` regenerates `melody_b` and `texture` for every non-debug song, locking each layer to that scenario's BPM (same tempo as the mix) and the song's existing `loopSeconds` so loops stay in phase. Skip `ui_debug_*` mixes unless you pass `--include-debug`.
 
 Or use **Manage Albums → Generate AI Layers**. Config: `generative_layers` in `config/default.yaml` (`api_base_url: http://127.0.0.1:7862`). Generation never runs on the 1 Hz tick.
 
 ### UI controls
 
-- **Start Audio** — glass EQ-ring on Home (scales with window; capped on fullscreen so session buttons stay visible). A **mini HUD** stays on top (top-right, draggable/resizable) with play/stop, focus, and Pomodoro.
+- **Start Audio** — glass EQ-ring on Home (scales with window; capped on fullscreen so session buttons stay visible). A **mini HUD** stays on top (top-right, draggable/resizable) with play/stop, focus, and a large Pomodoro countdown.
+- **Album song** — while playing, Home shows ‹ / song / › to jump within the current scenario album.
 - **Music State** — Calm / Focus / Deep Focus (+ mode, song, top layer gains).
-- **Pomodoro / Calibrate** — home session chips. While a Pomodoro runs, a diminishing countdown arc sits **between the glass button and the waveform**.
+- **Pomodoro / Calibrate** — home session chips. While a Pomodoro runs, a diminishing countdown arc **fades in** between the glass button and the waveform.
 - **Upload** — SWAP a mix into a scenario album; auto Demucs + optional MusicGen layers.
 - **Settings → Effect response** — muffling aggressiveness (1×–5×), music intensity lag, layer blend time, focus bar lag, **context blend time** (equal-power crossfade when switching work soundscapes). Live-adjustable and saved to `config/user_ui_settings.json`.
-- **Settings → Debug** — manual concentration override; manual layer volumes (sliders appear only when enabled).
+- **Settings → Debug** — manual concentration override; manual layer volumes (sliders appear only when enabled). `ui_debug_*` / `debug_mix` songs play only while Debug is on.
 - **Manage Albums** — advanced stem / AI controls.
 
 ### UI debug harness
@@ -258,6 +262,7 @@ python scripts/ui_debug_effects.py             # Effect response sliders
 python scripts/ui_debug_album_songs.py         # Manage Albums lists generated songs
 python scripts/ui_debug_transition.py          # context blend + scenario switch
 python scripts/ui_debug_overlay_pomo.py        # mini HUD + Pomodoro ring
+python scripts/ui_debug_song_picker.py         # album song picker + debug mixes
 ```
 
 ### Generate placeholder tones (optional)

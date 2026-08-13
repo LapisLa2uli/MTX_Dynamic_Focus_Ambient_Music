@@ -30,9 +30,9 @@ class MiniOverlay(QWidget):
         )
         self.setObjectName("miniOverlay")
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setMinimumSize(188, 78)
-        self.setMaximumSize(420, 180)
-        self.resize(228, 92)
+        self.setMinimumSize(220, 100)
+        self.setMaximumSize(460, 200)
+        self.resize(268, 116)
         self._dark = True
         self._running = False
         self._drag_origin: QPoint | None = None
@@ -67,6 +67,11 @@ class MiniOverlay(QWidget):
         col.addWidget(self._bar)
         top.addLayout(col, stretch=1)
 
+        self._pomo_time = QLabel("—")
+        self._pomo_time.setObjectName("miniPomoTime")
+        self._pomo_time.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        top.addWidget(self._pomo_time)
+
         self._close = QPushButton("×")
         self._close.setObjectName("miniClose")
         self._close.setFixedSize(18, 18)
@@ -76,7 +81,7 @@ class MiniOverlay(QWidget):
         root.addLayout(top)
 
         bottom = QHBoxLayout()
-        self._pomo = QLabel("Pomodoro  —")
+        self._pomo = QLabel("Pomodoro")
         self._pomo.setObjectName("miniPomo")
         bottom.addWidget(self._pomo)
         bottom.addStretch(1)
@@ -118,6 +123,13 @@ class MiniOverlay(QWidget):
                 color: {muted};
                 font-size: 10px;
                 font-weight: 600;
+            }}
+            QLabel#miniPomoTime {{
+                color: {fg};
+                font-size: 24px;
+                font-weight: 800;
+                letter-spacing: 1px;
+                min-width: 88px;
             }}
             QProgressBar#miniFocusBar {{
                 background: {btn};
@@ -164,11 +176,26 @@ class MiniOverlay(QWidget):
         self._bar.setValue(pct)
         self._focus_label.setText(f"Focus  {pct}%")
 
-    def set_pomodoro(self, *, active: bool, label: str = "") -> None:
+    def set_pomodoro(
+        self,
+        *,
+        active: bool,
+        label: str = "",
+        remaining_seconds: float | None = None,
+    ) -> None:
         if not active:
-            self._pomo.setText("Pomodoro  —")
+            self._pomo.setText("Pomodoro")
+            self._pomo_time.setText("—")
             return
-        self._pomo.setText(label or "Pomodoro")
+        self._pomo.setText("Pomodoro")
+        if remaining_seconds is not None:
+            mm, ss = divmod(max(0, int(remaining_seconds)), 60)
+            self._pomo_time.setText(f"{mm:02d}:{ss:02d}")
+        elif label:
+            # Fall back to trailing mm:ss in the label.
+            self._pomo_time.setText(label.split()[-1] if label else "—")
+        else:
+            self._pomo_time.setText("—")
 
     def place_top_right(self, margin: int = 16) -> None:
         screen = self.screen()
@@ -196,7 +223,7 @@ class MiniOverlay(QWidget):
         super().mouseReleaseEvent(event)
 
     def sizeHint(self) -> QSize:
-        return QSize(228, 92)
+        return QSize(268, 116)
 
     def paintEvent(self, event) -> None:  # noqa: N803
         # Draw rounded chrome so WA_TranslucentBackground still has a body.

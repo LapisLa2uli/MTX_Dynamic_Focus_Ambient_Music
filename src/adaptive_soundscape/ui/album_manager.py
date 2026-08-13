@@ -703,7 +703,7 @@ class _AlbumTab(QWidget):
         current = self._song_combo.currentData()
         self._song_combo.blockSignals(True)
         self._song_combo.clear()
-        songs = list_songs(self.assets_dir, self.profile_id)
+        songs = list_songs(self.assets_dir, self.profile_id, include_debug=True)
         for song in songs:
             self._song_combo.addItem(song.name, str(song))
         self._song_combo.blockSignals(False)

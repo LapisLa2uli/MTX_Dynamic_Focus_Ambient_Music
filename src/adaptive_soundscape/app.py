@@ -181,6 +181,7 @@ class AdaptiveSoundscapeApp:
         self.window.upload_page.soundtrack_changed.connect(self._on_albums_changed)
 
         self.window.home_page.action_toggled.connect(self._toggle_audio)
+        self.window.home_page.song_chosen.connect(self._on_song_chosen)
         self.window.home_page.pomodoro_start_requested.connect(self._on_pomodoro_start)
         self.window.home_page.pomodoro_cancel_requested.connect(self._on_pomodoro_cancel)
         self.window.home_page.calibrate_requested.connect(self._on_calibrate_requested)
@@ -459,6 +460,7 @@ class AdaptiveSoundscapeApp:
         self._invalidate_audio_caches()
         if self._audio_running:
             self.director.set_scenario(self._active_profile_id, self._focus_score)
+        self._refresh_album_songs()
 
     def _on_override(self, enabled: bool) -> None:
         self._manual_override = enabled
@@ -660,9 +662,28 @@ class AdaptiveSoundscapeApp:
             return WorkContext.DISTRACTION
         return classified_ctx
 
+    def _debug_mode_on(self) -> bool:
+        return self._debug_focus_override or self._debug_layer_override
+
+    def _sync_debug_songs(self) -> None:
+        """Debug mixes stay out of rotation unless Settings debug is on."""
+        self.director.set_include_debug_songs(self._debug_mode_on())
+        self._refresh_album_songs()
+
+    def _refresh_album_songs(self) -> None:
+        self.window.home_page.set_album_songs(
+            self.director.album_song_ids(),
+            self.director.active_song_id,
+        )
+
+    def _on_song_chosen(self, song_id: str) -> None:
+        self.director.set_song(song_id, focus_score=self._focus_score)
+        self._refresh_ui()
+
     def _on_debug_focus_override(self, enabled: bool, score: float) -> None:
         self._debug_focus_override = bool(enabled)
         self._debug_focus_score = max(0.0, min(1.0, float(score)))
+        self._sync_debug_songs()
         if self._debug_focus_override and self._audio_running:
             # Snap director smoothing so the audition responds immediately.
             self.director.force_intensity(self._debug_focus_score)
@@ -674,6 +695,7 @@ class AdaptiveSoundscapeApp:
             self._debug_layer_override,
             dict(gains) if isinstance(gains, dict) else None,
         )
+        self._sync_debug_songs()
 
     def _on_debug_layer_gain(self, layer_id: str, gain: float) -> None:
         self.director.set_debug_layer_gain(layer_id, gain)
@@ -692,7 +714,10 @@ class AdaptiveSoundscapeApp:
         self.window.home_page.set_pomodoro_progress(
             self.pomodoro.state.remaining_fraction, active=True
         )
-        self._overlay.set_pomodoro(active=True, label="Pomodoro  25:00")
+        self._overlay.set_pomodoro(
+            active=True,
+            remaining_seconds=self.pomodoro.state.remaining_seconds,
+        )
         self.window.set_status_message(
             state.notice or f"Pomodoro work started ({state.task_profile})."
         )
@@ -899,7 +924,8 @@ class AdaptiveSoundscapeApp:
                 self.pomodoro.state.remaining_fraction, active=True
             )
             self._overlay.set_pomodoro(
-                active=True, label=f"Pomodoro  {mm:02d}:{ss:02d}"
+                active=True,
+                remaining_seconds=self.pomodoro.state.remaining_seconds,
             )
             self.window.set_status_message(
                 f"Pomodoro {phase}: {mm:02d}:{ss:02d}"
@@ -1081,6 +1107,7 @@ class AdaptiveSoundscapeApp:
         self._overlay.set_focus(self._focus_score)
         self._overlay.set_running(self._audio_running)
         self._overlay.set_dark_mode(self.window.is_dark_mode)
+        self._refresh_album_songs()
 
 
 def _process_key(process_name: str) -> str:
