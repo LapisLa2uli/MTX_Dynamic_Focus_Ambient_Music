@@ -3,7 +3,11 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from adaptive_soundscape.context.classifier import classify_snapshot, resolve_context
+from adaptive_soundscape.context.classifier import (
+    classify_snapshot,
+    collect_unclassified,
+    resolve_context,
+)
 from adaptive_soundscape.context.inferer import ContextInferer
 from adaptive_soundscape.context.user_mappings import (
     UserMappings,
@@ -73,6 +77,31 @@ def test_resolve_misc_needs_confirm_when_unknown_to_rules():
     resolved = resolve_context(_snapshot("Strange Tool", "qzxtool999.exe"))
     assert resolved.is_misc is True
     assert resolved.needs_confirm is True
+
+
+def test_collect_unclassified_skips_mapped_and_keeps_unknown():
+    mappings = UserMappings()
+    mappings.add_process(WorkContext.PROGRAMMING, "code")
+    windows = [
+        ("code.exe", "main.py — Visual Studio Code"),
+        ("qzxtool999.exe", "Strange Tool"),
+        ("qzxtool999.exe", "Strange Tool"),  # duplicate
+        ("", ""),
+    ]
+    found = collect_unclassified(windows, user_mappings=mappings)
+    names = {(r.process_name.lower(), r.window_title) for r in found}
+    assert ("qzxtool999.exe", "Strange Tool") in names
+    assert not any(r.process_name.lower().startswith("code") for r in found)
+
+
+def test_collect_unclassified_includes_inferred_misc():
+    found = collect_unclassified(
+        [("postman.exe", "Postman")],
+        user_mappings=UserMappings(),
+    )
+    assert found
+    assert found[0].needs_confirm is True
+    assert found[0].context == WorkContext.PROGRAMMING
 
 
 def test_user_mappings_roundtrip(tmp_path: Path):

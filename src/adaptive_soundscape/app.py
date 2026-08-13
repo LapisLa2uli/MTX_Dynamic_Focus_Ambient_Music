@@ -13,11 +13,12 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from adaptive_soundscape.activity.monitor import ActivityMonitor
+from adaptive_soundscape.activity.window_tracker import list_open_windows
 from adaptive_soundscape.audio.factory import create_audio_backend
 from adaptive_soundscape.audio.music_director import MusicDirector, config_from_settings
 from adaptive_soundscape.audio.music_manifest import MusicIntensity
 from adaptive_soundscape.cognitive.estimator import FocusEstimate, FocusEstimator
-from adaptive_soundscape.context.classifier import resolve_context
+from adaptive_soundscape.context.classifier import collect_unclassified, resolve_context
 from adaptive_soundscape.context.inferer import ContextInferer
 from adaptive_soundscape.context.persistence import ContextPersistence
 from adaptive_soundscape.context.user_mappings import (
@@ -158,9 +159,9 @@ class AdaptiveSoundscapeApp:
         self._prompted_processes: set[str] = set()
         self._dismissed_processes: set[str] = set()
         self._last_process_key = ""
-        # Pending classification info for the "Confirm Classification" button
         self._pending_classification: dict | None = None
-        self._toast_manual = False  # True when the user manually opened the toast
+        self._toast_manual = False
+        self._seen_windows: dict[tuple[str, str], tuple[str, str]] = {}
 
         # Sync initial volume with config / Settings page
         self.director.set_volume(self.settings.adaptive_music.master_volume)
@@ -197,8 +198,9 @@ class AdaptiveSoundscapeApp:
 
         self._toast.confirmed.connect(self._on_inference_confirmed)
         self._toast.dismissed.connect(self._on_inference_dismissed)
+        self.window.classification_panel.item_saved.connect(self._on_inference_confirmed)
 
-        # Show classification toast on demand (user clicks "Confirm Classification")
+        # Show unclassified-window list on the right (user clicks "Confirm Classification")
         self.window.home_page.classify_requested.connect(self._on_classify_requested)
 
         # ── Settings page signals ──
@@ -294,6 +296,7 @@ class AdaptiveSoundscapeApp:
         self._toast_manual = False
         self._pending_classification = None
         self.window.home_page.set_classify_available(False)
+        self.window.classification_panel.hide_panel()
 
     def _persist_user_state(self) -> None:
         """Flush classification mappings and UI prefs to disk."""
@@ -976,8 +979,7 @@ class AdaptiveSoundscapeApp:
             return
 
     def _update_classify_button(self, resolved) -> None:
-        """Always keep the classify button visible during playback, and store
-        the latest window info so the user can correct classification any time."""
+        """Keep Confirm Classification visible during playback and remember misc windows."""
         process_key = _process_key(resolved.process_name)
         suggested = resolved.context
         confidence = resolved.confidence
@@ -995,21 +997,72 @@ class AdaptiveSoundscapeApp:
             "confidence": confidence,
             "source": source,
         }
+        cache_key = (process_key, (resolved.window_title or "").lower())
+        own_title = (self.window.windowTitle() or "").lower()
+        is_own = (resolved.window_title or "").lower() == own_title and bool(own_title)
+        if resolved.needs_confirm and not is_own:
+            self._seen_windows[cache_key] = (
+                resolved.process_name,
+                resolved.window_title,
+            )
+        else:
+            self._seen_windows.pop(cache_key, None)
         self.window.home_page.set_classify_available(True)
 
-    def _on_classify_requested(self) -> None:
-        """User clicked 'Confirm Classification' — show the toast inline."""
-        info = self._pending_classification
-        if info is None:
-            return
-        self._toast_manual = True
-        self._toast.show_inference(
-            process_name=info["process_name"],
-            window_title=info["window_title"],
-            suggested=info["suggested"],
-            confidence=info["confidence"],
-            source=info["source"],
+    def _collect_unclassified_windows(self) -> list[dict]:
+        pairs: list[tuple[str, str]] = []
+        try:
+            for info in list_open_windows():
+                pairs.append((info.process_name, info.title))
+        except Exception:
+            logger.exception("Failed to enumerate open windows")
+        pairs.extend(self._seen_windows.values())
+        own_title = (self.window.windowTitle() or "").lower()
+        if own_title:
+            pairs = [
+                (proc, title)
+                for proc, title in pairs
+                if (title or "").lower() != own_title
+            ]
+        resolved = collect_unclassified(
+            pairs,
+            user_mappings=self.user_mappings,
+            inferer=self.inferer,
         )
+        items: list[dict] = []
+        for item in resolved:
+            suggested = item.context
+            confidence = item.confidence
+            source = item.source
+            if item.inference is not None and item.inference.context != WorkContext.UNKNOWN:
+                suggested = item.inference.context
+                confidence = item.inference.confidence
+                source = item.inference.source
+            items.append(
+                {
+                    "process_name": item.process_name,
+                    "window_title": item.window_title,
+                    "suggested": suggested,
+                    "confidence": confidence,
+                    "source": source,
+                }
+            )
+        return items
+
+    def _on_classify_requested(self) -> None:
+        """Open the right-side list of unclassified windows."""
+        self._toast.hide()
+        self._toast_manual = False
+        panel = self.window.classification_panel
+        items = self._collect_unclassified_windows()
+        panel.set_items(items)
+        panel.show_panel()
+        if items:
+            self.window.set_status_message(
+                f"{len(items)} unclassified window(s) — save each one on the right."
+            )
+        else:
+            self.window.set_status_message("No unclassified windows right now.")
 
     def _on_inference_confirmed(
         self, process_name: str, window_title: str, context: object
@@ -1032,16 +1085,24 @@ class AdaptiveSoundscapeApp:
 
         self._dismissed_processes.discard(key)
         self._prompted_processes.add(key)
+        self._seen_windows = {
+            k: v for k, v in self._seen_windows.items() if k[0] != key
+        }
 
-        self.persistence.force(context)
-        self._current_context = context
-        decision = self.transition.force_profile(context, self._current_focus)
-        if self._audio_running:
-            self._apply_audio(decision)
-        self.window.set_status_message(
-            f"Saved '{process_name or key}' → {context.value.replace('_', ' ')}."
-        )
-        self._refresh_ui(decision.display_name)
+        label = context.value.replace("_", " ")
+        self.window.set_status_message(f"Saved '{process_name or key}' → {label}.")
+
+        if self.window.classification_panel.isVisible():
+            remaining = self._collect_unclassified_windows()
+            self.window.classification_panel.set_items(remaining)
+
+        if key == self._last_process_key:
+            self.persistence.force(context)
+            self._current_context = context
+            decision = self.transition.force_profile(context, self._current_focus)
+            if self._audio_running:
+                self._apply_audio(decision)
+            self._refresh_ui(decision.display_name)
 
     def _on_inference_dismissed(self, process_key: str) -> None:
         self._toast_manual = False

@@ -23,6 +23,7 @@ from adaptive_soundscape.core.i18n import (
     set_language as i18n_set_language,
     tr,
 )
+from adaptive_soundscape.ui.classification_panel import ClassificationPanel
 from adaptive_soundscape.ui.home_page import HomePage
 from adaptive_soundscape.ui.inference_toast import InferenceToast
 from adaptive_soundscape.ui.settings_page import SettingsPage
@@ -178,7 +179,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(tr("window_title"))
-        self.setMinimumSize(780, 540)
+        self.setMinimumSize(980, 540)
         self._dark = True
         self._current_nav_index = 0
         from adaptive_soundscape.ui.settings_page import DEFAULT_STATUS_COLORS
@@ -245,7 +246,10 @@ class MainWindow(QMainWindow):
 
         root.addWidget(self._content_host, stretch=1)
 
-        # Classification confirmations appear inside the main window (not a popup).
+        self.classification_panel = ClassificationPanel()
+        root.addWidget(self.classification_panel)
+
+        # Legacy single-window toast (kept for tests / fallback; classify uses the panel).
         self.inference_toast = InferenceToast(self._content_host)
 
         # ── Hidden legacy controls (app.py backward-compat) ──
@@ -326,6 +330,7 @@ class MainWindow(QMainWindow):
         self._upload_page.set_dark_mode(enabled)
         self._settings_page.set_dark_mode(enabled)
         self.inference_toast.set_dark_mode(enabled)
+        self.classification_panel.set_dark_mode(enabled)
 
         # Reapply current status tint after theme switch
         self._apply_page_tint()
@@ -399,6 +404,7 @@ class MainWindow(QMainWindow):
         self._home_page.set_language(code)
         self._upload_page.set_language(code)
         self._settings_page.set_language(code)
+        self.classification_panel.set_language()
 
     def update_status(
         self,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from adaptive_soundscape.context.inferer import ContextInferer, InferenceResult
 from adaptive_soundscape.context.rules import (
@@ -237,6 +238,56 @@ def resolve_context(
         process_name=process,
         window_title=title,
     )
+
+
+def resolve_window(
+    process_name: str,
+    window_title: str,
+    *,
+    user_mappings: UserMappings | None = None,
+    inferer: ContextInferer | None = None,
+) -> ResolvedContext:
+    """Classify a single window without needing a live activity snapshot."""
+    snapshot = ActivitySnapshot(
+        timestamp=datetime.now(timezone.utc),
+        window_title=window_title,
+        process_name=process_name,
+        keystroke_count=0,
+        click_count=0,
+        scroll_count=0,
+        cpu_percent=0.0,
+        idle_seconds=0.0,
+    )
+    return resolve_context(
+        snapshot, user_mappings=user_mappings, inferer=inferer
+    )
+
+
+def collect_unclassified(
+    windows: list[tuple[str, str]],
+    *,
+    user_mappings: UserMappings | None = None,
+    inferer: ContextInferer | None = None,
+) -> list[ResolvedContext]:
+    """Return unique windows that still need a user classification."""
+    mappings = user_mappings or UserMappings()
+    seen: set[tuple[str, str]] = set()
+    out: list[ResolvedContext] = []
+    for process_name, window_title in windows:
+        process = (process_name or "").strip()
+        title = (window_title or "").strip()
+        if not process and not title:
+            continue
+        key = (_process_base(process), title.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        resolved = resolve_window(
+            process, title, user_mappings=mappings, inferer=inferer
+        )
+        if resolved.needs_confirm:
+            out.append(resolved)
+    return out
 
 
 def _user_process_context(

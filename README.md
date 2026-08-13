@@ -242,6 +242,7 @@ Or use **Manage Albums → Generate AI Layers**. Config: `generative_layers` in 
 ### UI controls
 
 - **Start Audio** — glass EQ-ring on Home (scales with window; capped on fullscreen so session buttons stay visible). A **mini HUD** stays on top (top-right, draggable/resizable) with play/stop, focus, and a large Pomodoro countdown.
+- **Confirm Classification** — while playing, opens a **right-side list of unclassified windows** with suggested categories. Edit and **Save** each one individually (stored in `config/user_context_mappings.json`).
 - **Album song** — while playing, Home shows ‹ / song / › to jump within the current scenario album.
 - **Music State** — Calm / Focus / Deep Focus (+ mode, song, top layer gains).
 - **Pomodoro / Calibrate** — home session chips. While a Pomodoro runs, a diminishing countdown arc **fades in** between the glass button and the waveform.
@@ -263,6 +264,7 @@ python scripts/ui_debug_album_songs.py         # Manage Albums lists generated s
 python scripts/ui_debug_transition.py          # context blend + scenario switch
 python scripts/ui_debug_overlay_pomo.py        # mini HUD + Pomodoro ring
 python scripts/ui_debug_song_picker.py         # album song picker + debug mixes
+python scripts/ui_debug_classify_panel.py      # unclassified window list + per-row save
 ```
 
 ### Generate placeholder tones (optional)

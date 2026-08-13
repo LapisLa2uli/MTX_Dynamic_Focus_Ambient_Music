@@ -36,6 +36,34 @@ _STRINGS: dict[str, dict[str, str]] = {
         "zh": "确认分类",
         "hi": "वर्गीकरण की पुष्टि करें",
     },
+    "classify_panel_title": {
+        "en": "Unclassified windows",
+        "zh": "未分类窗口",
+        "hi": "अवर्गीकृत विंडो",
+    },
+    "classify_panel_hint": {
+        "en": "Edit the suggested category and save each window on its own.",
+        "zh": "可修改建议分类，并逐个保存。",
+        "hi": "सुझाई गई श्रेणी संपादित करें और प्रत्येक विंडो को अलग से सहेजें।",
+    },
+    "classify_save": {"en": "Save", "zh": "保存", "hi": "सहेजें"},
+    "classify_empty": {
+        "en": "No unclassified windows right now.",
+        "zh": "当前没有未分类窗口。",
+        "hi": "अभी कोई अवर्गीकृत विंडो नहीं।",
+    },
+    "classify_no_process": {"en": "(no process)", "zh": "（无进程）", "hi": "(कोई प्रक्रिया नहीं)"},
+    "classify_no_title": {"en": "(no title)", "zh": "（无标题）", "hi": "(कोई शीर्षक नहीं)"},
+    "classify_no_guess": {
+        "en": "No confident guess — pick a category.",
+        "zh": "没有可靠猜测，请选择分类。",
+        "hi": "कोई विश्वसनीय अनुमान नहीं — श्रेणी चुनें।",
+    },
+    "classify_suggested": {
+        "en": "Suggested: {name} ({source}, {pct})",
+        "zh": "建议：{name}（{source}，{pct}）",
+        "hi": "सुझाव: {name} ({source}, {pct})",
+    },
     "home_pomodoro_idle": {
         "en": "Start Pomodoro",
         "zh": "开始番茄钟",
