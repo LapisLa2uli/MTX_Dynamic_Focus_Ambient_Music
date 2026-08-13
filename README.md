@@ -238,11 +238,11 @@ Or use **Manage Albums → Generate AI Layers**. Config: `generative_layers` in 
 
 ### UI controls
 
-- **Start Audio** — glass EQ-ring on Home (scales with window; capped on fullscreen so session buttons stay visible).
+- **Start Audio** — glass EQ-ring on Home (scales with window; capped on fullscreen so session buttons stay visible). A **mini HUD** stays on top (top-right, draggable/resizable) with play/stop, focus, and Pomodoro.
 - **Music State** — Calm / Focus / Deep Focus (+ mode, song, top layer gains).
-- **Pomodoro / Calibrate** — home session chips (flexible width).
+- **Pomodoro / Calibrate** — home session chips. While a Pomodoro runs, a diminishing countdown arc sits **between the glass button and the waveform**.
 - **Upload** — SWAP a mix into a scenario album; auto Demucs + optional MusicGen layers.
-- **Settings → Effect response** — muffling aggressiveness (1×–5×), music intensity lag, layer blend time, focus bar lag. Live-adjustable and saved to `config/user_ui_settings.json`.
+- **Settings → Effect response** — muffling aggressiveness (1×–5×), music intensity lag, layer blend time, focus bar lag, **context blend time** (equal-power crossfade when switching work soundscapes). Live-adjustable and saved to `config/user_ui_settings.json`.
 - **Settings → Debug** — manual concentration override; manual layer volumes (sliders appear only when enabled).
 - **Manage Albums** — advanced stem / AI controls.
 
@@ -256,6 +256,8 @@ python scripts/ui_debug_essential.py
 python scripts/ui_debug_focus_distraction.py   # auto-distraction path
 python scripts/ui_debug_effects.py             # Effect response sliders
 python scripts/ui_debug_album_songs.py         # Manage Albums lists generated songs
+python scripts/ui_debug_transition.py          # context blend + scenario switch
+python scripts/ui_debug_overlay_pomo.py        # mini HUD + Pomodoro ring
 ```
 
 ### Generate placeholder tones (optional)
@@ -273,7 +275,7 @@ python scripts/generate_album_songs.py --scenario programming --count 2
 python scripts/generate_album_songs.py --scenario creative_design --count 1 --no-separate --no-ai-layers
 ```
 
-Defaults favor quality + warm sidecars: `stem_separation.model: htdemucs_ft`, `sidecar_apis.stop_when_done: false`.
+MusicGen song seeds use per-scenario briefs (BPM, instrumentation, and “avoid” lists) from the Focus Music Requirements notes — see `build_song_prompt` in `src/adaptive_soundscape/audio/prompt_builder.py`.
 
 ---
 

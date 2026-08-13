@@ -33,6 +33,16 @@ class PomodoroState:
         return max(0.0, (self.phase_ends_at - now).total_seconds())
 
     @property
+    def remaining_fraction(self) -> float:
+        """1 at phase start, 0 when the phase ends. Idle returns 0."""
+        if self.phase_ends_at is None or self.phase_started_at is None:
+            return 0.0
+        total = (self.phase_ends_at - self.phase_started_at).total_seconds()
+        if total <= 1e-3:
+            return 0.0
+        return max(0.0, min(1.0, self.remaining_seconds / total))
+
+    @property
     def is_active(self) -> bool:
         return self.phase != PomodoroPhase.IDLE
 

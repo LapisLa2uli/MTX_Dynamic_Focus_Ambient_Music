@@ -64,6 +64,9 @@ class PlaceholderMixer:
         self._stem_pack_fade_remaining = 0
         self._stem_pack_fade_total = 1
         self._stem_pack_paths: dict[str, Path] = {}
+        # Frozen outgoing gains while a new pack equal-power fades in.
+        self._stem_pack_from_gains: dict[str, float] = {}
+        self._loop_xf = max(32, int(sample_rate * 0.008))
         # Phrase-boundary switch state (wait → fadeout → gap → new track).
         self._switch_phase = "idle"  # idle | wait | fadeout | gap
         self._switch_wait_remaining = 0
@@ -121,6 +124,7 @@ class PlaceholderMixer:
             self._stem_target_positions.clear()
             self._stem_pack_paths.clear()
             self._stem_pack_fade_remaining = 0
+            self._stem_pack_from_gains = {}
             self._stem_mode = False
             self._reset_phrase_switch()
 
@@ -142,13 +146,37 @@ class PlaceholderMixer:
         self._stem_switch_fade_in_remaining = 0
 
     def _edge_guard(self, length: int) -> int:
-        """Skip baked loop-edge fades so incoming stems are not silent."""
+        """Start after the loop splice head so the first sample is near-silent."""
         if length <= 1:
             return 0
-        guard = min(self.sample_rate // 2, length // 16)
-        if length <= 2 * guard:
+        xf = min(self._loop_xf, length // 8)
+        return xf if length > 2 * xf else 0
+
+    def _splice_loop(self, data: np.ndarray) -> np.ndarray:
+        """Equal-power splice the tail into the head so wrap-around is click-free."""
+        n = int(len(data))
+        xf = min(self._loop_xf, n // 8)
+        if n < 2 * xf + 8 or xf < 8:
+            return data
+        out = data.copy()
+        t = np.linspace(0.0, 1.0, xf, dtype=np.float32)
+        fade_out = np.cos(t * np.pi * 0.5).astype(np.float32)
+        fade_in = np.sin(t * np.pi * 0.5).astype(np.float32)
+        out[-xf:] = out[-xf:] * fade_out + out[:xf] * fade_in
+        return out
+
+    def _advance_loop_pos(self, pos: int, frames: int, length: int) -> int:
+        """Advance a playhead, skipping the spliced head after a wrap."""
+        if length <= 0:
             return 0
-        return guard
+        xf = min(self._loop_xf, length // 8) if length > 2 * self._loop_xf else 0
+        nxt = pos + frames
+        if nxt < length:
+            return nxt
+        wrapped = nxt - length
+        if xf and wrapped < xf:
+            return xf + wrapped
+        return wrapped % length
 
     def _load_track(self, track: Path) -> np.ndarray | None:
         key = str(track.resolve())
@@ -160,6 +188,7 @@ class PlaceholderMixer:
         if len(data) == 0:
             return None
         scaled = np.clip(data * 0.75, -1.0, 1.0).astype(np.float32)
+        scaled = self._splice_loop(scaled)
         with self._lock:
             self._track_cache[key] = scaled
         return scaled
@@ -280,10 +309,17 @@ class PlaceholderMixer:
             self._target_profile_id = profile_id
 
     def set_parameters(self, params: AudioParameters) -> None:
+        """Keep outgoing params frozen while a crossfade / pack fade is active."""
         with self._lock:
-            self._params = params
-            if self._crossfade_remaining <= 0:
-                self._target_params = params
+            fading = (
+                self._crossfade_remaining > 0
+                or self._stem_pack_fade_remaining > 0
+                or self._stem_switch_phase in {"wait", "fadeout", "gap"}
+                or self._switch_phase in {"wait", "fadeout", "gap"}
+            )
+            self._target_params = params
+            if not fading:
+                self._params = params
 
     def set_master_volume(self, volume: float) -> None:
         self.master_volume = max(0.0, min(1.0, float(volume)))
@@ -332,6 +368,7 @@ class PlaceholderMixer:
                 self._stem_target_buffers = {}
                 self._stem_target_positions = {}
                 self._stem_pack_fade_remaining = 0
+                self._stem_pack_from_gains = {}
                 for lid in loaded:
                     self._stem_gains.setdefault(lid, 0.5)
                     self._stem_gain_targets.setdefault(lid, self._stem_gains[lid])
@@ -339,15 +376,17 @@ class PlaceholderMixer:
                 self._profile_id = "__stem__"
                 self._target_profile_id = "__stem__"
                 return
+            self._stem_pack_from_gains = dict(self._stem_gains)
             self._stem_target_buffers = loaded
             self._stem_target_positions = {
                 lid: self._edge_guard(len(buf)) for lid, buf in loaded.items()
             }
             self._stem_pack_fade_total = max(int(crossfade_seconds * self.sample_rate), 1)
             self._stem_pack_fade_remaining = self._stem_pack_fade_total
-            for lid in loaded:
-                self._stem_gains.setdefault(lid, 0.0)
-                self._stem_gain_targets.setdefault(lid, 0.5)
+            # Incoming pack starts silent; director slews targets via set_layer_gains.
+            incoming = {lid: 0.0 for lid in loaded}
+            self._stem_gains = dict(incoming)
+            self._stem_gain_targets = dict(incoming)
 
     def fade_out_and_switch_stems(
         self,
@@ -675,13 +714,18 @@ class PlaceholderMixer:
             pos = self._positions.get(profile_id, 0)
             length = len(buf)
             buffer = buf
-        out = np.zeros(frames, dtype=np.float32)
+        out = np.empty(frames, dtype=np.float32)
+        xf = min(self._loop_xf, length // 8) if length > 2 * self._loop_xf else 0
+        wrap_to = xf
+        p = pos % length
         for i in range(frames):
-            out[i] = buffer[pos]
-            pos = (pos + 1) % length
+            out[i] = buffer[p]
+            p += 1
+            if p >= length:
+                p = wrap_to
         with self._lock:
             if self._buffers.get(profile_id) is buffer:
-                self._positions[profile_id] = pos
+                self._positions[profile_id] = p
         return out
 
     def _apply_params(self, block: np.ndarray, params: AudioParameters) -> np.ndarray:
@@ -726,9 +770,9 @@ class PlaceholderMixer:
 
     @staticmethod
     def _fade_in_gain(t: float) -> float:
-        """New-song entrance curve — slightly weaker start ramping to full."""
+        """Cosine fade-in from silence — never a 70% step that clicks."""
         t = max(0.0, min(1.0, t))
-        return 0.7 + 0.3 * t
+        return math.sin(t * math.pi * 0.5)
 
     def _read_stem_mix(
         self,
@@ -744,18 +788,25 @@ class PlaceholderMixer:
                 continue
             length = len(buf)
             pos = int(new_pos.get(layer_id, 0)) % length
+            xf = min(self._loop_xf, length // 8) if length > 2 * self._loop_xf else 0
+            wrap_to = xf
             # Always advance playheads — even when muted — so layers that share
-            # a common source stay phase-locked. Otherwise a layer that unmutes
-            # later restarts from the loop head and overlaps mid-phrase content
-            # still audible in harmony/pad.
+            # a common source stay phase-locked.
             end = pos + frames
             if end <= length:
                 chunk = buf[pos:end]
-                new_pos[layer_id] = end % length
+                new_pos[layer_id] = end
             else:
                 first = length - pos
-                chunk = np.concatenate((buf[pos:], buf[: frames - first]))
-                new_pos[layer_id] = (frames - first) % length
+                rest = frames - first
+                head = buf[wrap_to : wrap_to + rest] if rest else buf[:0]
+                if len(head) < rest:
+                    # Extremely short buffer — fall back to modular wrap.
+                    chunk = np.concatenate((buf[pos:], buf[:rest]))
+                    new_pos[layer_id] = rest % length
+                else:
+                    chunk = np.concatenate((buf[pos:], head))
+                    new_pos[layer_id] = wrap_to + rest
             g = float(gains.get(layer_id, 0.0))
             if g > 1e-6:
                 out += chunk.astype(np.float32, copy=False) * g
@@ -835,11 +886,9 @@ class PlaceholderMixer:
                 }
                 self._stem_pack_paths = resolved
                 for lid in loaded:
-                    # The director arms the new pack's gain targets while the
-                    # old pack is still fading; take over at the target level
-                    # (set_layer_gains may have seeded gains at 0.0).
-                    self._stem_gains[lid] = self._stem_gain_targets.get(lid, 0.5)
-                    self._stem_gain_targets.setdefault(lid, self._stem_gains[lid])
+                    # Enter from silence so the fade-in cosine has no step.
+                    self._stem_gains[lid] = 0.0
+                    self._stem_gain_targets.setdefault(lid, 0.5)
                 self._stem_mode = True
                 self._profile_id = "__stem__"
                 self._target_profile_id = "__stem__"
@@ -872,24 +921,25 @@ class PlaceholderMixer:
         if stem_mode and stem_buffers:
             with self._lock:
                 stem_switch_phase = self._stem_switch_phase
+                from_gains = dict(self._stem_pack_from_gains)
             if stem_switch_phase == "idle":
                 gains = self._advance_stem_gains(frames)
             else:
                 # Freeze per-layer gains while a phrase switch is in progress,
                 # so the current pack keeps its level until the fade-out starts.
                 gains = dict(self._stem_gains)
+            outgoing_gains = from_gains or gains
             current, new_pos = self._read_stem_mix(
-                stem_buffers, stem_positions, gains, frames
+                stem_buffers, stem_positions, outgoing_gains, frames
             )
             with self._lock:
                 if self._stem_buffers is not None:
                     self._stem_positions = new_pos
-            current = self._apply_params(current, params)
 
             with self._lock:
                 stem_switch_phase = self._stem_switch_phase
             if stem_switch_phase != "idle":
-                # Phrase-boundary stem switch owns the output until done.
+                current = self._apply_params(current, params)
                 out = self._advance_stem_switch(current, frames)
             elif pack_fade_rem > 0 and stem_target_buffers:
                 t = 1.0 - (pack_fade_rem / max(pack_fade_total, 1))
@@ -897,8 +947,8 @@ class PlaceholderMixer:
                 target_block, t_pos = self._read_stem_mix(
                     stem_target_buffers, stem_target_positions, gains, frames
                 )
-                target_block = self._apply_params(target_block, target_params)
                 mixed = current * gain_a + target_block * gain_b
+                shaped = self._apply_params(mixed, params.lerp(target_params, t))
                 pack_fade_rem -= frames
                 with self._lock:
                     self._stem_target_positions = t_pos
@@ -908,12 +958,13 @@ class PlaceholderMixer:
                         self._stem_target_buffers = {}
                         self._stem_target_positions = {}
                         self._stem_pack_fade_remaining = 0
+                        self._stem_pack_from_gains = {}
                         self._params = target_params
                     else:
                         self._stem_pack_fade_remaining = pack_fade_rem
-                out = mixed
+                out = shaped
             else:
-                out = current
+                out = self._apply_params(current, params)
             # New pack enters slightly weaker after a phrase switch.
             with self._lock:
                 sfin_rem = self._stem_switch_fade_in_remaining
@@ -929,16 +980,15 @@ class PlaceholderMixer:
             return result
 
         current = self._read_loop(profile, frames)
-        current = self._apply_params(current, params)
-
         if switch_phase != "idle":
+            current = self._apply_params(current, params)
             out = self._render_phrase_switch(current, frames)
         elif fade_rem > 0 and target != profile:
             t = 1.0 - (fade_rem / max(fade_total, 1))
             gain_a, gain_b = self._equal_power_weights(t)
             target_block = self._read_loop(target, frames)
-            target_block = self._apply_params(target_block, target_params)
             mixed = current * gain_a + target_block * gain_b
+            out = self._apply_params(mixed, params.lerp(target_params, t))
             fade_rem -= frames
             if fade_rem <= 0:
                 with self._lock:
@@ -948,9 +998,8 @@ class PlaceholderMixer:
             else:
                 with self._lock:
                     self._crossfade_remaining = fade_rem
-            out = mixed
         else:
-            out = current
+            out = self._apply_params(current, params)
 
         # New track enters slightly weaker after a phrase switch.
         with self._lock:

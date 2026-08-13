@@ -110,7 +110,8 @@ class AdaptiveMusicConfigModel(BaseModel):
     phrase_search_seconds: float = 10.0
     phrase_fadeout_seconds: float = 3.0
     phrase_gap_seconds: float = 0.5
-    fallback_crossfade_seconds: float = 3.0
+    fallback_crossfade_seconds: float = 4.0
+    scenario_crossfade_seconds: float = 4.0
 
 
 class GenerativeLayersConfig(BaseModel):

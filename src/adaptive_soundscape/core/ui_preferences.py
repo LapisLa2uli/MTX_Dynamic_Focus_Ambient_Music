@@ -27,6 +27,7 @@ class UiPreferences:
     intensity_smoothing: float | None = None
     gain_slew_seconds: float | None = None
     focus_smoothing: float | None = None
+    scenario_crossfade_seconds: float | None = None
     probes_enabled: bool = True
     status_colors: dict[str, str] = field(default_factory=dict)
     language: str = "en"
@@ -49,6 +50,8 @@ class UiPreferences:
             out["gain_slew_seconds"] = float(self.gain_slew_seconds)
         if self.focus_smoothing is not None:
             out["focus_smoothing"] = float(self.focus_smoothing)
+        if self.scenario_crossfade_seconds is not None:
+            out["scenario_crossfade_seconds"] = float(self.scenario_crossfade_seconds)
         return out
 
     @classmethod
@@ -104,6 +107,13 @@ class UiPreferences:
             try:
                 prefs.focus_smoothing = max(
                     0.05, min(0.90, float(data["focus_smoothing"]))
+                )
+            except (TypeError, ValueError):
+                pass
+        if "scenario_crossfade_seconds" in data:
+            try:
+                prefs.scenario_crossfade_seconds = max(
+                    0.5, min(12.0, float(data["scenario_crossfade_seconds"]))
                 )
             except (TypeError, ValueError):
                 pass

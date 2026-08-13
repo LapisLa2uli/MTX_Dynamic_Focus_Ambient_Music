@@ -96,7 +96,8 @@ class AdaptiveMusicConfig:
     phrase_search_seconds: float = 10.0
     phrase_fadeout_seconds: float = 3.0
     phrase_gap_seconds: float = 0.5
-    fallback_crossfade_seconds: float = 3.0
+    fallback_crossfade_seconds: float = 4.0
+    scenario_crossfade_seconds: float = 4.0
 
 
 class MusicDirector:
@@ -362,11 +363,13 @@ class MusicDirector:
             self._playback_mode = "discrete"
             self._transition_to(self._active_state, force=True)
             return
-        crossfade_s = self.config.default_crossfade_ms / 1000.0
+        crossfade_s = max(0.5, float(self.config.scenario_crossfade_seconds))
         if self._song_dir is not None:
             manifest = load_manifest(self._song_dir)
             if manifest is not None:
-                crossfade_s = max(manifest.crossfade_ms, 50) / 1000.0
+                crossfade_s = max(
+                    crossfade_s, max(manifest.crossfade_ms, 50) / 1000.0
+                )
         if force:
             crossfade_s = min(crossfade_s, 0.35)
 
@@ -411,7 +414,7 @@ class MusicDirector:
                 and self.config.phrase_boundary_enabled
             ):
                 crossfade_s = max(
-                    crossfade_s, self.config.fallback_crossfade_seconds
+                    crossfade_s, self.config.scenario_crossfade_seconds
                 )
             try:
                 self.backend.load_stem_pack(self._layer_paths, crossfade_s)
@@ -599,20 +602,16 @@ class MusicDirector:
                             "MusicDirector: no phrase boundary within %.0fs → "
                             "%.0fs crossfade",
                             self.config.phrase_search_seconds,
-                            self.config.fallback_crossfade_seconds,
+                            self.config.scenario_crossfade_seconds,
                         )
             except Exception:
                 logger.exception("MusicDirector: phrase boundary detection failed")
 
         if self._enabled and not used_phrase:
             if phrase_capable:
-                crossfade_s = max(self.config.fallback_crossfade_seconds, 0.1)
+                crossfade_s = max(self.config.scenario_crossfade_seconds, 0.5)
             else:
-                crossfade_s = self.config.default_crossfade_ms / 1000.0
-                if self._song_dir is not None:
-                    manifest = load_manifest(self._song_dir)
-                    if manifest is not None:
-                        crossfade_s = max(manifest.crossfade_ms, 50) / 1000.0
+                crossfade_s = max(self.config.scenario_crossfade_seconds, 0.5)
             try:
                 self.backend.crossfade_to_track(
                     path, crossfade_s if not force else min(crossfade_s, 0.35), self._params
@@ -700,6 +699,9 @@ def config_from_settings(adaptive: Any) -> AdaptiveMusicConfig:
         ),
         phrase_gap_seconds=float(getattr(adaptive, "phrase_gap_seconds", 0.5)),
         fallback_crossfade_seconds=float(
-            getattr(adaptive, "fallback_crossfade_seconds", 3.0)
+            getattr(adaptive, "fallback_crossfade_seconds", 4.0)
+        ),
+        scenario_crossfade_seconds=float(
+            getattr(adaptive, "scenario_crossfade_seconds", 4.0)
         ),
     )

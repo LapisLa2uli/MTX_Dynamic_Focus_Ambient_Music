@@ -50,6 +50,7 @@ from adaptive_soundscape.transition.controller import TransitionController
 from adaptive_soundscape.ui.album_manager import AlbumManagerDialog
 from adaptive_soundscape.ui.category_editor import CategoryEditorDialog
 from adaptive_soundscape.ui.main_window import MainWindow
+from adaptive_soundscape.ui.mini_overlay import MiniOverlay
 from adaptive_soundscape.ui.probe_dialog import GoNoGoProbeDialog
 from adaptive_soundscape.ui.settings_page import DEFAULT_STATUS_COLORS, SettingsPage
 
@@ -141,6 +142,9 @@ class AdaptiveSoundscapeApp:
             config=config_from_settings(self.settings.adaptive_music),
         )
         self.window = MainWindow()
+        self._overlay = MiniOverlay()
+        self._overlay.play_toggled.connect(self._toggle_audio)
+        self._overlay.hide_requested.connect(self._overlay.hide)
         self._manual_override = False
         self._current_context = WorkContext.UNKNOWN
         self._current_focus = FocusState.CALM_PRODUCTIVITY
@@ -213,6 +217,7 @@ class AdaptiveSoundscapeApp:
         sp.intensity_smoothing_changed.connect(self._on_intensity_smoothing_changed)
         sp.gain_slew_changed.connect(self._on_gain_slew_changed)
         sp.focus_smoothing_changed.connect(self._on_focus_smoothing_changed)
+        sp.scenario_crossfade_changed.connect(self._on_scenario_crossfade_changed)
         sp.probes_enabled_changed.connect(self._on_probes_enabled_changed)
         sp.probe_requested.connect(self._on_probe_requested)
         sp.export_focus_data_requested.connect(self._on_export_focus_data)
@@ -244,6 +249,11 @@ class AdaptiveSoundscapeApp:
             fs = float(self._ui_prefs.focus_smoothing)
             self.settings.cognitive.focus_smoothing = fs
             self.focus_index.smoothing = fs
+        if self._ui_prefs.scenario_crossfade_seconds is not None:
+            xf = float(self._ui_prefs.scenario_crossfade_seconds)
+            self.settings.adaptive_music.scenario_crossfade_seconds = xf
+            self.director.config.scenario_crossfade_seconds = xf
+            self.director.config.fallback_crossfade_seconds = xf
         self._probes_enabled = bool(self._ui_prefs.probes_enabled)
         self._language = self._ui_prefs.language or i18n_get_language()
         self._apply_ui_preferences()
@@ -267,6 +277,8 @@ class AdaptiveSoundscapeApp:
         self.monitor.start()
         self._timer.start()
         self.window.show()
+        self._overlay.place_top_right()
+        self._overlay.show()
         self._refresh_ui()
 
     def stop(self) -> None:
@@ -276,6 +288,7 @@ class AdaptiveSoundscapeApp:
         self.monitor.stop()
         self.director.shutdown()
         self._toast.hide()
+        self._overlay.hide()
         self._toast_manual = False
         self._pending_classification = None
         self.window.home_page.set_classify_available(False)
@@ -301,6 +314,9 @@ class AdaptiveSoundscapeApp:
                     self.settings.adaptive_music.gain_slew_seconds
                 ),
                 focus_smoothing=float(self.settings.cognitive.focus_smoothing),
+                scenario_crossfade_seconds=float(
+                    self.settings.adaptive_music.scenario_crossfade_seconds
+                ),
                 probes_enabled=self._probes_enabled,
                 status_colors=dict(self._status_colors),
                 language=self._language,
@@ -323,6 +339,9 @@ class AdaptiveSoundscapeApp:
         sp.set_intensity_smoothing(self.settings.adaptive_music.intensity_smoothing)
         sp.set_gain_slew(self.settings.adaptive_music.gain_slew_seconds)
         sp.set_focus_smoothing(self.settings.cognitive.focus_smoothing)
+        sp.set_scenario_crossfade(
+            self.settings.adaptive_music.scenario_crossfade_seconds
+        )
         sp.set_probes_enabled(self._probes_enabled)
         self.window._set_dark_mode(bool(self._ui_prefs.dark_mode))
         sp.set_dark_mode(bool(self._ui_prefs.dark_mode))
@@ -342,6 +361,7 @@ class AdaptiveSoundscapeApp:
             self._audio_running = False
             self._viz_timer.stop()
             self.window.home_page.set_running(False)
+            self._overlay.set_running(False)
             self.window.set_status_message("")
             self._refresh_ui()
             return
@@ -383,6 +403,7 @@ class AdaptiveSoundscapeApp:
         self._audio_running = True
         self._active_profile_id = decision.profile_id
         self.window.home_page.set_running(True)
+        self._overlay.set_running(True)
         self._viz_timer.start()
         self._refresh_eq_bands()
         self._publish_audio_params(decision, params)
@@ -479,7 +500,7 @@ class AdaptiveSoundscapeApp:
         self._persist_user_state()
 
     def _on_dark_mode_changed(self, enabled: bool) -> None:
-        del enabled
+        self._overlay.set_dark_mode(bool(enabled))
         self._persist_user_state()
 
     def _on_language_changed(self, code: str) -> None:
@@ -562,6 +583,13 @@ class AdaptiveSoundscapeApp:
         alpha = max(0.05, min(0.90, float(value)))
         self.settings.cognitive.focus_smoothing = alpha
         self.focus_index.smoothing = alpha
+        self._persist_user_state()
+
+    def _on_scenario_crossfade_changed(self, value: float) -> None:
+        seconds = max(0.5, min(12.0, float(value)))
+        self.settings.adaptive_music.scenario_crossfade_seconds = seconds
+        self.director.config.scenario_crossfade_seconds = seconds
+        self.director.config.fallback_crossfade_seconds = seconds
         self._persist_user_state()
 
     def _compute_muffling(self, focus_score: float) -> float:
@@ -660,6 +688,10 @@ class AdaptiveSoundscapeApp:
             self.calibration.start_session(state.task_profile, minutes=5.0)
             self.focus_index.set_calibration_mode(True, force_aligned=True)
         self.window.home_page.set_pomodoro_active(True, label="End Pomodoro")
+        self.window.home_page.set_pomodoro_progress(
+            self.pomodoro.state.remaining_fraction, active=True
+        )
+        self._overlay.set_pomodoro(active=True, label="Pomodoro  25:00")
         self.window.set_status_message(
             state.notice or f"Pomodoro work started ({state.task_profile})."
         )
@@ -670,6 +702,7 @@ class AdaptiveSoundscapeApp:
         self.calibration.cancel()
         self.focus_index.storage.delete_session_patterns()
         self.window.home_page.set_pomodoro_active(False)
+        self._overlay.set_pomodoro(active=False)
         self.window.set_status_message("Pomodoro ended.")
 
     def _on_calibrate_requested(self, task_profile: str) -> None:
@@ -861,12 +894,19 @@ class AdaptiveSoundscapeApp:
             self.window.home_page.set_pomodoro_active(
                 True, label=f"End · {mm:02d}:{ss:02d}"
             )
+            self.window.home_page.set_pomodoro_progress(
+                self.pomodoro.state.remaining_fraction, active=True
+            )
+            self._overlay.set_pomodoro(
+                active=True, label=f"Pomodoro  {mm:02d}:{ss:02d}"
+            )
             self.window.set_status_message(
                 f"Pomodoro {phase}: {mm:02d}:{ss:02d}"
                 + (f" — {self.pomodoro.state.notice}" if self.pomodoro.state.notice else "")
             )
         else:
             self.window.home_page.set_pomodoro_active(False)
+            self._overlay.set_pomodoro(active=False)
         if self.calibration.state.active and not self.pomodoro.state.is_active:
             remaining = int(self.calibration.state.remaining_seconds)
             mm, ss = divmod(remaining, 60)
@@ -1037,6 +1077,9 @@ class AdaptiveSoundscapeApp:
         profile_id = self._current_context.value
         if profile_id in self._status_colors:
             self.window.update_status_background(profile_id)
+        self._overlay.set_focus(self._focus_score)
+        self._overlay.set_running(self._audio_running)
+        self._overlay.set_dark_mode(self.window.is_dark_mode)
 
 
 def _process_key(process_name: str) -> str:

@@ -408,6 +408,7 @@ class SettingsPage(QWidget):
     intensity_smoothing_changed = pyqtSignal(float)
     gain_slew_changed = pyqtSignal(float)
     focus_smoothing_changed = pyqtSignal(float)
+    scenario_crossfade_changed = pyqtSignal(float)
     probes_enabled_changed = pyqtSignal(bool)
     probe_requested = pyqtSignal()
     export_focus_data_requested = pyqtSignal()
@@ -562,6 +563,14 @@ class SettingsPage(QWidget):
             5,
             90,
             "{:.2f}",
+        )
+        self._scenario_xfade_slider, self._scenario_xfade_label = self._build_slider_row(
+            content,
+            "scenario_xfade_label",
+            int(round(4.0 * 100)),
+            50,
+            1200,
+            "{:.1f}s",
         )
         effects_hint = QLabel(tr("effects_hint"))
         effects_hint.setObjectName("hintLabel")
@@ -732,6 +741,8 @@ class SettingsPage(QWidget):
                 self.gain_slew_changed.emit(val / 100.0)
             elif getattr(self, "_focus_smooth_slider", None) is slider:
                 self.focus_smoothing_changed.emit(val / 100.0)
+            elif getattr(self, "_scenario_xfade_slider", None) is slider:
+                self.scenario_crossfade_changed.emit(val / 100.0)
 
         slider.valueChanged.connect(_on_change)
 
@@ -1145,6 +1156,13 @@ class SettingsPage(QWidget):
         self._focus_smooth_slider.setValue(scaled)
         self._focus_smooth_slider.blockSignals(False)
         self._focus_smooth_label.setText(f"{scaled / 100:.2f}")
+
+    def set_scenario_crossfade(self, value: float) -> None:
+        scaled = int(round(max(0.5, min(12.0, value)) * 100))
+        self._scenario_xfade_slider.blockSignals(True)
+        self._scenario_xfade_slider.setValue(scaled)
+        self._scenario_xfade_slider.blockSignals(False)
+        self._scenario_xfade_label.setText(f"{scaled / 100:.1f}s")
 
     def set_probes_enabled(self, enabled: bool) -> None:
         self._probes_enabled = bool(enabled)

@@ -272,13 +272,13 @@ class EqRingWidget(QWidget):
     N_BARS = 48
     DEFAULT_SMOOTHNESS = 0.35
     _TICK_MS = 16  # ≈60 Hz
-    _DESIGN_SIZE = 220.0
-    _DESIGN_RADIUS = 75.0
-    _DESIGN_EXTENT = 34.0          # r + ext = 109 < half-size 110 → waves stay in box
-    _RING_MIN = 0.16               # min ring thickness — valleys dip deep for big swings
-    _BASE_EXT = 0.30               # constant base ring thickness (fraction of ext) —
-    #                               always-visible full circle → top gap impossible
-    _N_CURVE = 720                 # high-res points for a smooth closed path
+    _DESIGN_SIZE = 236.0
+    _DESIGN_RADIUS = 70.0
+    _POMO_GAP = 14.0           # countdown lives between glass rim and waveform
+    _DESIGN_EXTENT = 32.0      # r + gap + ext = 116 < half-size 118
+    _RING_MIN = 0.16
+    _BASE_EXT = 0.30
+    _N_CURVE = 720
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -296,6 +296,8 @@ class EqRingWidget(QWidget):
         self._band_peak: list[float] = [1e-3] * self.N_BARS
         self._smoothness = self.DEFAULT_SMOOTHNESS
         self._apply_smoothness_params(self._smoothness)
+        self._pomo_active = False
+        self._pomo_remaining = 0.0  # 1 = full ring, 0 = empty
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -315,14 +317,15 @@ class EqRingWidget(QWidget):
         self._ambient = QColor(color)
         self.update()
 
-    def _geom(self) -> tuple[float, float, float, float]:
-        """Return (cx, cy, radius, ring_extent) from current widget size."""
+    def _geom(self) -> tuple[float, float, float, float, float]:
+        """Return (cx, cy, radius, pomo_gap, ring_extent) from current size."""
         w, h = float(self.width()), float(self.height())
         size = min(w, h)
         scale = size / self._DESIGN_SIZE
         r = self._DESIGN_RADIUS * scale
+        gap = self._POMO_GAP * scale
         ext = self._DESIGN_EXTENT * scale
-        return w / 2.0, h / 2.0, r, ext
+        return w / 2.0, h / 2.0, r, gap, ext
 
     # ── public API ──
 
@@ -411,7 +414,19 @@ class EqRingWidget(QWidget):
                     idx += 1
         return out
 
+    def set_pomodoro_progress(self, remaining: float, *, active: bool) -> None:
+        """Draw a diminishing countdown between the glass edge and the waveform."""
+        rem = max(0.0, min(1.0, float(remaining)))
+        if self._pomo_active == bool(active) and abs(self._pomo_remaining - rem) < 0.002:
+            return
+        self._pomo_active = bool(active)
+        self._pomo_remaining = rem
+        self.update()
+
     def set_smoothness(self, value: float) -> None:
+        """0 = detailed / spiky waveform; 1 = very soft oval-like lobes."""
+        self._smoothness = max(0.0, min(1.0, float(value)))
+        self._apply_smoothness_params(self._smoothness)
         """0 = detailed / spiky waveform; 1 = very soft oval-like lobes."""
         self._smoothness = max(0.0, min(1.0, float(value)))
         self._apply_smoothness_params(self._smoothness)
@@ -438,7 +453,7 @@ class EqRingWidget(QWidget):
 
     def _in_circle(self, pos) -> bool:
         """Check whether a point is inside the button circle."""
-        cx, cy, r, _ext = self._geom()
+        cx, cy, r, _gap, _ext = self._geom()
         dx, dy = pos.x() - cx, pos.y() - cy
         return (dx * dx + dy * dy) <= r * r
 
@@ -542,10 +557,11 @@ class EqRingWidget(QWidget):
     def paintEvent(self, _event) -> None:  # noqa: N803
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        cx, cy, r, ext = self._geom()
+        cx, cy, r, gap, ext = self._geom()
         scale = r / self._DESIGN_RADIUS if self._DESIGN_RADIUS else 1.0
+        wave_inner = r + gap
 
-        # ── 1. Continuous polar spectrogram ring ──
+        # ── 1. Continuous polar spectrogram ring (outside the pomo gap) ──
         if self._active:
             amps = self._display
             n_bands = self.N_BARS
@@ -560,42 +576,24 @@ class EqRingWidget(QWidget):
                 i0 = int(idx_frac) % n_bands
                 frac = idx_frac - int(idx_frac)
                 i1 = (i0 + 1) % n_bands
-                # Blend linear ↔ cosine interpolation from smoothness setting
                 t_cos = 0.5 - 0.5 * cos(pi * frac)
                 t = (1.0 - self._interp_cosine) * frac + self._interp_cosine * t_cos
                 amp = amps[i0] * (1.0 - t) + amps[i1] * t
-                # Contrast-stretch the amplitude (power < 1 lifts mids, deepens
-                # valleys, sharpens peaks) for larger visible fluctuation while
-                # the radius stays bounded by ext — the waves never leave the box.
                 amp = max(0.0, min(1.0, amp)) ** 1.6
-                # Keep a minimum ring thickness even when a band is near-zero,
-                # so the ring never fully hugs the button (no empty top gap).
-                dist = r + (self._RING_MIN + (1.0 - self._RING_MIN) * amp) * ext
+                dist = wave_inner + (self._RING_MIN + (1.0 - self._RING_MIN) * amp) * ext
                 outer_pts.append((cx + dist * cos(angle), cy + dist * sin(angle)))
 
-            # Inner circle (reversed) to close the ring.
-            # Sink 2 px inside the button so the background circle drawn later
-            # fully covers the inner seam — no anti-alias gap.
-            inner_r = r - 2 * scale
+            inner_r = wave_inner - 1.5 * scale
             inner_pts: list[tuple[float, float]] = []
             for k in range(n_curve - 1, -1, -1):
                 angle = -0.5 * pi + 2.0 * pi * k / n_curve
                 inner_pts.append((cx + inner_r * cos(angle), cy + inner_r * sin(angle)))
 
-            # Two closed subpaths (outer wave + inner circle) with OddEven
-            # fill.  A single winding subpath puts a radial seam at the top
-            # where the wave collapses; the dense edges there make the
-            # scanline filler drop the fill on a small top spot while the
-            # outline (drawn separately) still shows.  OddEven on two closed
-            # rings has no seam and cannot hollow the band.
             ring_path = QPainterPath()
             ring_path.addPolygon(QPolygonF([QPointF(x, y) for x, y in outer_pts]))
             ring_path.addPolygon(QPolygonF([QPointF(x, y) for x, y in inner_pts]))
             ring_path.setFillRule(Qt.FillRule.OddEvenFill)
 
-            # Radial gradient fill — theme colour (eases with work-type aurora).
-            # Bright at the inner edge, fading to a dim, desaturated rim so the
-            # band clearly reads as a gradient even at rest.
             theme = self._ambient
             h, s, v, _a = theme.getHsvF()
             if h < 0:
@@ -609,18 +607,15 @@ class EqRingWidget(QWidget):
                 c.setAlpha(alpha)
                 return c
 
-            grad = QRadialGradient(cx, cy, r + ext)
+            outer_max = wave_inner + ext
+            grad = QRadialGradient(cx, cy, outer_max)
             grad.setColorAt(0.0, _tint(s, v, 245))
-            grad.setColorAt(r / (r + ext), _tint(s, v, 245))
+            grad.setColorAt(wave_inner / max(outer_max, 1e-3), _tint(s, v, 245))
             grad.setColorAt(0.78, _tint(s * 0.9, v * 0.84, 205, 0.015))
             grad.setColorAt(0.89, _tint(s * 0.68, v * 0.68, 155, 0.025))
             grad.setColorAt(1.0, _tint(s * 0.45, v * 0.5, 115, 0.035))
 
-            # Constant base ring underneath — a fixed-thickness annulus that
-            # fully encircles the button at every angle.  Even when the low
-            # band (which maps to the top of the ring) is silent, the top arc
-            # still shows this base band, so a visible gap can never form.
-            base_outer = r + self._BASE_EXT * ext
+            base_outer = wave_inner + self._BASE_EXT * ext
             base_path = QPainterPath()
             base_path.addEllipse(
                 cx - base_outer, cy - base_outer, 2 * base_outer, 2 * base_outer
@@ -634,12 +629,10 @@ class EqRingWidget(QWidget):
             p.setBrush(base_grad)
             p.drawPath(base_path)
 
-            # Animated wave ring on top of the base ring.
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(grad)
             p.drawPath(ring_path)
 
-            # Subtle outer contour line — closed loop (soft, not a hard border)
             outline_pen = QPen(
                 _tint(s, min(1.0, v), 55),
                 max(1.0, 0.9 * scale),
@@ -649,13 +642,15 @@ class EqRingWidget(QWidget):
             )
             p.setPen(outline_pen)
             p.setBrush(Qt.BrushStyle.NoBrush)
-            # draw outer edge as a closed polygon
             out_path = QPainterPath()
             out_path.moveTo(*outer_pts[0])
             for pt in outer_pts[1:]:
                 out_path.lineTo(*pt)
             out_path.closeSubpath()
             p.drawPath(out_path)
+
+        # ── 1b. Diminishing Pomodoro edge (outside glass, inside waveform) ──
+        self._paint_pomodoro_edge(p, cx, cy, r, gap, scale)
 
         # ── 2. Translucent liquid-glass disc ──
         self._paint_liquid_glass(p, cx, cy, r, scale)
@@ -694,6 +689,53 @@ class EqRingWidget(QWidget):
             self._label,
         )
         p.end()
+
+    def _paint_pomodoro_edge(
+        self,
+        p: QPainter,
+        cx: float,
+        cy: float,
+        r: float,
+        gap: float,
+        scale: float,
+    ) -> None:
+        """Countdown arc in the gap between the glass rim and the waveform."""
+        if gap < 2.0:
+            return
+        mid = r + gap * 0.52
+        width = max(2.2 * scale, gap * 0.46)
+        rect = QRectF(cx - mid, cy - mid, 2 * mid, 2 * mid)
+        p.save()
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        track_a = 36 if self._dark else 48
+        track = QPen(QColor(255, 255, 255, track_a) if self._dark else QColor(40, 40, 55, 40))
+        if not self._dark:
+            track.setColor(QColor(40, 44, 62, 42))
+        track.setWidthF(width * 0.72)
+        track.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(track)
+        p.drawEllipse(rect)
+        if self._pomo_active and self._pomo_remaining > 0.004:
+            span = 360.0 * self._pomo_remaining
+            amb = self._ambient
+            glow = QColor(amb.red(), amb.green(), amb.blue(), 70)
+            core = QColor(
+                min(255, amb.red() + 40),
+                min(255, amb.green() + 50),
+                min(255, amb.blue() + 80),
+                235,
+            )
+            glow_pen = QPen(glow)
+            glow_pen.setWidthF(width * 1.55)
+            glow_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(glow_pen)
+            p.drawArc(rect, 90 * 16, -int(span * 16))
+            core_pen = QPen(core)
+            core_pen.setWidthF(width)
+            core_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(core_pen)
+            p.drawArc(rect, 90 * 16, -int(span * 16))
+        p.restore()
 
     def _paint_liquid_glass(
         self, p: QPainter, cx: float, cy: float, r: float, scale: float = 1.0
@@ -794,7 +836,7 @@ class HomePage(QWidget):
     # Design reference for responsive layout (content area ~590×520 at min window)
     _REF_W = 590.0
     _REF_H = 520.0
-    _BTN_DESIGN = 220
+    _BTN_DESIGN = 236
     _BLOB_MIN = 4
     _BLOB_MAX = 14
 
@@ -972,7 +1014,7 @@ class HomePage(QWidget):
         margins = 2 * m + 80
         leftover = max(140.0, float(self.height()) - top_max - session_h - classify_h - margins)
         btn = int(round(min(self._BTN_DESIGN * scale, leftover)))
-        btn = max(150, min(280, btn))
+        btn = max(160, min(300, btn))
         self._eq_ring.setFixedSize(btn, btn)
 
         self._focus_bar.setFixedWidth(max(160, int(round(220 * scale))))
@@ -1207,6 +1249,11 @@ class HomePage(QWidget):
             active_text=label or tr("home_pomodoro_active"),
             owner=self,
         )
+        if not active:
+            self._eq_ring.set_pomodoro_progress(0.0, active=False)
+
+    def set_pomodoro_progress(self, remaining: float, *, active: bool) -> None:
+        self._eq_ring.set_pomodoro_progress(remaining, active=active)
 
     def set_calibration_active(self, active: bool, *, label: str | None = None) -> None:
         """Sync dedicated calibration button label/state from the app controller."""

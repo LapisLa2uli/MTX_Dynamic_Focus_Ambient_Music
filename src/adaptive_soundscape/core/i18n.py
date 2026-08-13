@@ -153,13 +153,19 @@ _STRINGS: dict[str, dict[str, str]] = {
         "zh": "专注条滞后",
         "hi": "फ़ोकस बार विलंब",
     },
+    "scenario_xfade_label": {
+        "en": "Context blend time",
+        "zh": "情境过渡时间",
+        "hi": "संदर्भ मिश्रण समय",
+    },
     "effects_hint": {
         "en": (
             "Lower lag/blend values respond faster. Muffling aggressiveness multiplies "
-            "the muffling strength curve (1×–5×)."
+            "the muffling strength curve (1×–5×). Context blend time is the equal-power "
+            "crossfade when switching work soundscapes."
         ),
-        "zh": "滞后/过渡越小反应越快。抑制侵略性会放大抑制强度曲线（1×–5×）。",
-        "hi": "कम विलंब = तेज़ प्रतिक्रिया। मफलिंग आक्रामकता 1×–5× गुणक है।",
+        "zh": "滞后/过渡越小反应越快。抑制侵略性会放大抑制强度曲线（1×–5×）。情境过渡时间是切换工作音景时的等功率交叉淡化。",
+        "hi": "कम विलंब = तेज़ प्रतिक्रिया। मफलिंग आक्रामकता 1×–5× गुणक है। संदर्भ मिश्रण = साउंडस्केप क्रॉसफ़ेड।",
     },
     "section_cognitive": {"en": "Cognitive", "zh": "认知", "hi": "संज्ञानात्मक"},
     "threshold_label": {
