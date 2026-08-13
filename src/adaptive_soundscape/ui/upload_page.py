@@ -110,55 +110,53 @@ QLabel#tabSubtitle {
 
 TAB_BASE = """
 QPushButton {
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
+    background: #22222b;
+    border: 2px solid #3a3a48;
+    border-radius: 9px;
     color: #70707a;
     font-size: 12px;
     font-weight: 700;
-    padding: 6px 14px;
 }
 QPushButton:hover {
-    color: #a0a0b0;
+    border: 2px solid #5c5c74;
+    background: #262631;
 }
 """
 
 TAB_ACTIVE = """
 QPushButton {
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid #5b8def;
+    background: #1d2942;
+    border: 2px solid #5b8def;
+    border-radius: 9px;
     color: #e8e8ec;
     font-size: 12px;
     font-weight: 700;
-    padding: 6px 14px;
 }
 """
 
 LIGHT_TAB_BASE = """
 QPushButton {
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
+    background: #f2f2f6;
+    border: 2px solid #c6c6d0;
+    border-radius: 9px;
     color: #808090;
     font-size: 12px;
     font-weight: 700;
-    padding: 6px 14px;
 }
 QPushButton:hover {
-    color: #404050;
+    border: 2px solid #9a9ab2;
+    background: #eaeaf2;
 }
 """
 
 LIGHT_TAB_ACTIVE = """
 QPushButton {
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid #5b8def;
+    background: #e8eefc;
+    border: 2px solid #5b8def;
+    border-radius: 9px;
     color: #181820;
     font-size: 12px;
     font-weight: 700;
-    padding: 6px 14px;
 }
 """
 
@@ -641,15 +639,15 @@ class UploadPage(QWidget):
         root.addLayout(title_row)
 
         tab_row = QHBoxLayout()
-        tab_row.setSpacing(0)
+        tab_row.setSpacing(8)
         tab_row.setContentsMargins(0, 0, 0, 0)
 
         self._tab_buttons: list[QPushButton] = []
         for idx, profile_id in enumerate(PROFILE_IDS):
             btn = QPushButton()
-            btn.setIconSize(QSize(22, 22))
+            btn.setIconSize(QSize(28, 28))
             btn.setToolTip(i18n_status_label(profile_id))
-            btn.setFixedWidth(44)
+            btn.setFixedSize(56, 44)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(lambda _c, i=idx: self._switch_tab(i))
             tab_row.addWidget(btn)

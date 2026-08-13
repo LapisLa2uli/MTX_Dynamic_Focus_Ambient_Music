@@ -25,6 +25,32 @@ from adaptive_soundscape.core.i18n import (
     theme_label as i18n_theme_label,
     tr,
 )
+from adaptive_soundscape.ui.icons import build_profile_icons
+
+
+class _ClickOnlySlider(QSlider):
+    """A slider whose value is changed by clicking/dragging, not the wheel.
+
+    The settings page lives in a scroll area; a plain slider would steal
+    the mouse wheel when the cursor happens to hover over it, so scrolling
+    the page would randomly move sliders. Wheel events are therefore
+    ignored here and propagate to the scroll area instead.
+    """
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        event.ignore()
+
+
+class _ClickOnlyComboBox(QComboBox):
+    """A combo box that only changes when clicked open, never via the wheel.
+
+    Same rationale as :class:`_ClickOnlySlider`: hovering a combo while
+    scrolling the settings page must not silently change the selection.
+    """
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        event.ignore()
+
 
 # ---------------------------------------------------------------------------
 # Stylesheets
@@ -335,16 +361,6 @@ STATUS_DISPLAY_NAMES: dict[str, str] = {
     "unknown":         "Neutral",
 }
 
-STATUS_ICONS: dict[str, str] = {
-    "programming":     "🖥️",
-    "team_workflow":   "👥",
-    "reading_writing": "📖",
-    "scientific":      "🔬",
-    "creative_design": "🎨",
-    "distraction":     "⚠️",
-    "unknown":         "◯",
-}
-
 COLOR_PICKER_BTN_STYLE = """
 QPushButton {
     background-color: #333340;
@@ -448,6 +464,11 @@ class SettingsPage(QWidget):
         self._status_colors: dict[str, str] = dict(DEFAULT_STATUS_COLORS)
         self._trans: list[tuple[str, QWidget]] = []
         self._color_labels: dict[str, QLabel] = {}
+        self._color_icon_labels: dict[str, QLabel] = {}
+        self._color_icons = {
+            "dark": build_profile_icons("#a8a8bc"),
+            "light": build_profile_icons("#56566e"),
+        }
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(40, 28, 40, 24)
@@ -683,7 +704,7 @@ class SettingsPage(QWidget):
         row.addWidget(label)
         self._trans.append(("language_label", label))
 
-        self._language_combo = QComboBox()
+        self._language_combo = _ClickOnlyComboBox()
         self._language_combo.setCursor(Qt.CursorShape.PointingHandCursor)
         for code, native in SUPPORTED_LANGUAGES:
             self._language_combo.addItem(native, code)
@@ -710,7 +731,7 @@ class SettingsPage(QWidget):
         row.addWidget(label)
         self._trans.append((label_key, label))
 
-        slider = QSlider(Qt.Orientation.Horizontal)
+        slider = _ClickOnlySlider(Qt.Orientation.Horizontal)
         slider.setRange(lo, hi)
         slider.setValue(initial)
         slider.setMinimumWidth(180)
@@ -846,7 +867,7 @@ class SettingsPage(QWidget):
         label = QLabel(label_text)
         label.setObjectName("settingLabel")
         row.addWidget(label)
-        slider = QSlider(Qt.Orientation.Horizontal)
+        slider = _ClickOnlySlider(Qt.Orientation.Horizontal)
         slider.setRange(lo, hi)
         slider.setValue(initial)
         slider.setMinimumWidth(180)
@@ -902,7 +923,7 @@ class SettingsPage(QWidget):
         row.addWidget(label)
         self._trans.append(("theme_label", label))
 
-        self._theme_combo = QComboBox()
+        self._theme_combo = _ClickOnlyComboBox()
         self._theme_combo.setCursor(Qt.CursorShape.PointingHandCursor)
         for ctx in WorkContext:
             display = i18n_theme_label(ctx.value)
@@ -998,9 +1019,16 @@ class SettingsPage(QWidget):
         row = QHBoxLayout()
         row.setSpacing(8)
 
-        icon = STATUS_ICONS.get(profile_id, "⚫")
+        icon_label = QLabel()
+        icon_label.setFixedSize(22, 22)
+        icon_label.setPixmap(
+            self._color_icons["dark" if self._dark else "light"][profile_id].pixmap(22, 22)
+        )
+        row.addWidget(icon_label)
+        self._color_icon_labels[profile_id] = icon_label
+
         name = i18n_status_label(profile_id)
-        label = QLabel(f"{icon}  {name}")
+        label = QLabel(name)
         label.setObjectName("settingLabel")
         row.addWidget(label)
         self._color_labels[profile_id] = label
@@ -1102,6 +1130,7 @@ class SettingsPage(QWidget):
         # Colour-picker buttons follow theme
         for _swatch, pick_btn in self._color_widgets.values():
             pick_btn.setStyleSheet(COLOR_PICKER_BTN_STYLE if dark else LIGHT_COLOR_PICKER_BTN_STYLE)
+        self._apply_color_icons()
         # Manage / Export / Delete data buttons follow theme (white text in dark mode)
         for b in (
             getattr(self, "_manage_btn", None),
@@ -1110,6 +1139,12 @@ class SettingsPage(QWidget):
         ):
             if b is not None:
                 b.setStyleSheet(ACTION_BTN_WHITE_STYLE if dark else ACTION_BTN_LIGHT_STYLE)
+
+    def _apply_color_icons(self) -> None:
+        """Re-render the per-status icons for the active theme."""
+        icons = self._color_icons["dark" if self._dark else "light"]
+        for profile_id, icon_label in self._color_icon_labels.items():
+            icon_label.setPixmap(icons[profile_id].pixmap(22, 22))
 
     # ------------------------------------------------------------------
     # Public API
@@ -1219,8 +1254,7 @@ class SettingsPage(QWidget):
         for key, widget in self._trans:
             widget.setText(tr(key))
         for profile_id, label in self._color_labels.items():
-            icon = STATUS_ICONS.get(profile_id, "⚫")
-            label.setText(f"{icon}  {i18n_status_label(profile_id)}")
+            label.setText(i18n_status_label(profile_id))
         if getattr(self, "_manage_btn", None) is not None:
             self._manage_btn.setToolTip(tr("manage_tip"))
         # Rebuild theme combo items (localized) while keeping the selection
