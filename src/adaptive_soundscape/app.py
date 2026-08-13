@@ -46,7 +46,7 @@ from adaptive_soundscape.core.events import (
 from adaptive_soundscape.focus_index.config import FocusIndexConfig
 from adaptive_soundscape.focus_index.service import FocusIndexService
 from adaptive_soundscape.session.calibration import CalibrationController
-from adaptive_soundscape.session.pomodoro import PomodoroController
+from adaptive_soundscape.session.pomodoro import PomodoroController, PomodoroPhase
 from adaptive_soundscape.transition.controller import TransitionController
 from adaptive_soundscape.ui.album_manager import AlbumManagerDialog
 from adaptive_soundscape.ui.category_editor import CategoryEditorDialog
@@ -371,9 +371,18 @@ class AdaptiveSoundscapeApp:
             self._refresh_ui()
             return
 
-        decision = self.transition.decide(
-            self._current_context, self._current_focus, self._focus_score
+        ctx = (
+            WorkContext.UNKNOWN
+            if self.pomodoro.in_break
+            else self._current_context
         )
+        if self.pomodoro.in_break:
+            decision = self.transition.force_profile(ctx, self._current_focus)
+            self._current_context = ctx
+        else:
+            decision = self.transition.decide(
+                ctx, self._current_focus, self._focus_score
+            )
         params = self._apply_muffling_to_params(decision.parameters, self._focus_score)
         try:
             self._bind_director_backend(self.audio)
@@ -606,7 +615,9 @@ class AdaptiveSoundscapeApp:
         )
         override = self.pomodoro.muffling_override()
         if override is not None:
-            return max(base, override)
+            # 1 + override → mixer applies the normal curve at (override)
+            # then divides cutoff by 10 (about 10× more muffled than work).
+            return 1.0 + max(0.0, min(1.0, override))
         return base
 
     def _update_auto_distraction(
@@ -708,7 +719,9 @@ class AdaptiveSoundscapeApp:
         self._persist_user_state()
 
     def _on_pomodoro_start(self, task_profile: str) -> None:
+        prev = self.pomodoro.state.phase
         state = self.pomodoro.start_work(task_profile or "unknown")
+        self._on_pomodoro_phase_changed(prev, state.phase)
         self.focus_index.set_task_profile(state.task_profile)
         if self.pomodoro.in_session_calibration:
             self.calibration.start_session(state.task_profile, minutes=5.0)
@@ -726,13 +739,61 @@ class AdaptiveSoundscapeApp:
         )
 
     def _on_pomodoro_cancel(self) -> None:
+        prev = self.pomodoro.state.phase
         self.pomodoro.cancel()
+        self._on_pomodoro_phase_changed(prev, PomodoroPhase.IDLE)
         self.focus_index.set_calibration_mode(False)
         self.calibration.cancel()
         self.focus_index.storage.delete_session_patterns()
         self.window.home_page.set_pomodoro_active(False)
         self._overlay.set_pomodoro(active=False)
         self.window.set_status_message("Pomodoro ended.")
+
+    def _on_pomodoro_phase_changed(
+        self, previous: PomodoroPhase, current: PomodoroPhase
+    ) -> None:
+        work_phases = {PomodoroPhase.WORK, PomodoroPhase.SESSION_CALIBRATION}
+        if current == PomodoroPhase.BREAK and previous != PomodoroPhase.BREAK:
+            self._play_pomodoro_chime("break")
+            self._apply_break_music()
+            return
+        if current in work_phases and previous not in work_phases:
+            self._play_pomodoro_chime("work")
+            if previous == PomodoroPhase.BREAK:
+                self._restore_music_after_break()
+            return
+        if current == PomodoroPhase.IDLE and previous == PomodoroPhase.BREAK:
+            self._restore_music_after_break()
+
+    def _play_pomodoro_chime(self, kind: str) -> None:
+        player = getattr(self.audio, "play_notification", None)
+        if self._audio_running and callable(player):
+            try:
+                player(kind)
+                return
+            except Exception:
+                logger.exception("Pomodoro %s chime via mixer failed", kind)
+        from adaptive_soundscape.audio.chimes import play_chime_standalone
+
+        play_chime_standalone(kind, self.settings.audio.sample_rate)
+
+    def _apply_break_music(self) -> None:
+        """Force the Neutral (unknown) album for the whole break."""
+        decision = self.transition.force_profile(
+            WorkContext.UNKNOWN, self._current_focus
+        )
+        self._current_context = WorkContext.UNKNOWN
+        if self._audio_running:
+            self._apply_audio(decision)
+
+    def _restore_music_after_break(self) -> None:
+        ctx = self._classified_context
+        if not self._manual_override:
+            ctx = self._update_auto_distraction(ctx, self._focus_score)
+        decision = self.transition.force_profile(ctx, self._current_focus)
+        self._current_context = ctx
+        if self._audio_running:
+            self._apply_audio(decision)
 
     def _on_calibrate_requested(self, task_profile: str) -> None:
         profile = task_profile or "unknown"
@@ -825,7 +886,10 @@ class AdaptiveSoundscapeApp:
         self._classified_context = classified
 
         # Pomodoro / calibration bookkeeping before scoring.
+        prev_pomo = self.pomodoro.state.phase
         pomo = self.pomodoro.tick()
+        if pomo.phase != prev_pomo:
+            self._on_pomodoro_phase_changed(prev_pomo, pomo.phase)
         calib_state, calib_done = self.calibration.tick()
         if calib_done:
             kind = self.calibration.last_completed_kind
@@ -881,6 +945,8 @@ class AdaptiveSoundscapeApp:
 
         # Low focus → auto DISTRACTION for UI/music only (hysteresis + dwell).
         effective = self._update_auto_distraction(classified, estimate.focus_score)
+        if self.pomodoro.in_break:
+            effective = WorkContext.UNKNOWN
         if effective != self._current_context:
             self.bus.publish(
                 ContextChanged(self._current_context, effective, confidence)

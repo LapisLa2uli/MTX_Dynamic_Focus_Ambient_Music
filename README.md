@@ -245,7 +245,7 @@ Or use **Manage Albums → Generate AI Layers**. Config: `generative_layers` in 
 - **Confirm Classification** — while playing, opens a **right-side list of unclassified windows** with suggested categories. Edit and **Save** each one individually (stored in `config/user_context_mappings.json`).
 - **Album song** — while playing, Home shows ‹ / song / › to jump within the current scenario album.
 - **Music State** — Calm / Focus / Deep Focus (+ mode, song, top layer gains).
-- **Pomodoro / Calibrate** — home session chips. While a Pomodoro runs, a diminishing countdown arc **fades in** between the glass button and the waveform.
+- **Pomodoro / Calibrate** — home session chips. Work and break each play a distinct notification chime. A break **switches to the Neutral album** and muffles about **10× more** (LPF cutoff ÷ 10). While a Pomodoro runs, a diminishing countdown arc **fades in** between the glass button and the waveform.
 - **Upload** — SWAP a mix into a scenario album; auto Demucs + optional MusicGen layers.
 - **Settings → Effect response** — muffling aggressiveness (1×–5×), music intensity lag, layer blend time, focus bar lag, **context blend time** (equal-power crossfade when switching work soundscapes). Live-adjustable and saved to `config/user_ui_settings.json`.
 - **Settings → Debug** — manual concentration override; manual layer volumes (sliders appear only when enabled). `ui_debug_*` / `debug_mix` songs play only while Debug is on.
@@ -265,6 +265,7 @@ python scripts/ui_debug_transition.py          # context blend + scenario switch
 python scripts/ui_debug_overlay_pomo.py        # mini HUD + Pomodoro ring
 python scripts/ui_debug_song_picker.py         # album song picker + debug mixes
 python scripts/ui_debug_classify_panel.py      # unclassified window list + per-row save
+python scripts/ui_debug_pomo_break.py          # break chime + Neutral album + 10× muffling
 ```
 
 ### Generate placeholder tones (optional)

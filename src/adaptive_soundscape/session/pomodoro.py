@@ -98,7 +98,7 @@ class PomodoroController:
             session_calibration_minutes=self.session_calibration_minutes,
             phase_started_at=now,
             phase_ends_at=now + timedelta(minutes=self.break_minutes),
-            notice="Break — music muffled",
+            notice="Break — neutral album, heavy muffling",
         )
         return self.state
 

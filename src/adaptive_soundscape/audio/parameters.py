@@ -26,5 +26,6 @@ class AudioParameters:
             brightness=self.brightness,
             energy=self.energy,
             warmth=self.warmth,
-            muffling=max(0.0, min(1.0, float(muffling))),
+            # 0–1: normal focus muffling; 1–2: Pomodoro-break extra-low band.
+            muffling=max(0.0, min(2.0, float(muffling))),
         )

@@ -20,6 +20,20 @@ from adaptive_soundscape.audio.parameters import AudioParameters
 logger = logging.getLogger(__name__)
 
 
+def muffle_cutoff_hz(muffling: float) -> float:
+    """Map muffling amount to LPF cutoff.
+
+    0–1 is the normal focus curve (~8 kHz → ~180 Hz). Values in (1, 2]
+    reuse the (m-1) curve then divide cutoff by 10 (Pomodoro break).
+    """
+    m = max(0.0, float(muffling))
+    inner = min(1.0, m if m <= 1.0 else m - 1.0)
+    cutoff = 8000.0 * (1.0 - inner) + 180.0 * inner
+    if m > 1.0:
+        cutoff = cutoff / 10.0
+    return max(40.0, cutoff)
+
+
 class PlaceholderMixer:
     """Loop album tracks with parameter-driven EQ-ish shaping."""
 
@@ -95,6 +109,8 @@ class PlaceholderMixer:
             self._n_bands, sample_rate, 40.0
         )
         self._current_bands: list[float] = [0.0] * self._n_bands
+        self._chime: np.ndarray | None = None
+        self._chime_pos = 0
 
 
     @property
@@ -323,6 +339,15 @@ class PlaceholderMixer:
 
     def set_master_volume(self, volume: float) -> None:
         self.master_volume = max(0.0, min(1.0, float(volume)))
+
+    def play_notification(self, kind: str) -> None:
+        """Queue a one-shot chime mixed on top of the current output (not muffled)."""
+        from adaptive_soundscape.audio.chimes import render_chime
+
+        samples = render_chime(kind, self.sample_rate)
+        with self._lock:
+            self._chime = samples
+            self._chime_pos = 0
 
     def load_stem_pack(
         self,
@@ -735,7 +760,7 @@ class PlaceholderMixer:
         shaped = block * energy
         shaped = shaped * (0.85 + brightness * 0.3)
         shaped = shaped * (0.9 + warmth * 0.15)
-        muffling = max(0.0, min(1.0, float(getattr(params, "muffling", 0.0))))
+        muffling = max(0.0, float(getattr(params, "muffling", 0.0)))
         if muffling > 1e-4:
             shaped = self._apply_muffle_lpf(shaped, muffling)
         else:
@@ -743,8 +768,12 @@ class PlaceholderMixer:
         return np.clip(shaped, -1.0, 1.0)
 
     def _apply_muffle_lpf(self, block: np.ndarray, muffling: float) -> np.ndarray:
-        """Stateful one-pole low-pass; cutoff falls as muffling rises (~8 kHz → ~180 Hz)."""
-        cutoff = 8000.0 * (1.0 - muffling) + 180.0 * muffling
+        """Stateful one-pole low-pass.
+
+        0–1: cutoff ~8 kHz → ~180 Hz (focus muffling).
+        1–2: the (m-1) curve is applied then divided by 10 (Pomodoro break).
+        """
+        cutoff = muffle_cutoff_hz(muffling)
         # One-pole coefficient: alpha ≈ 1 - exp(-2π fc / fs)
         alpha = 1.0 - math.exp(-2.0 * math.pi * cutoff / float(self.sample_rate))
         alpha = max(1e-4, min(1.0, alpha))
@@ -977,7 +1006,7 @@ class PlaceholderMixer:
                     self._stem_switch_fade_in_remaining = sfin_rem
             result = (out * self.master_volume).astype(np.float32)
             self._update_visualiser(result)
-            return result
+            return self._overlay_chime(result, frames)
 
         current = self._read_loop(profile, frames)
         if switch_phase != "idle":
@@ -1014,7 +1043,26 @@ class PlaceholderMixer:
 
         result = (out * self.master_volume).astype(np.float32)
         self._update_visualiser(result)
-        return result
+        return self._overlay_chime(result, frames)
+
+    def _overlay_chime(self, result: np.ndarray, frames: int) -> np.ndarray:
+        """Mix a queued notification chime on top (clear of the music LPF)."""
+        with self._lock:
+            chime = self._chime
+            pos = self._chime_pos
+        if chime is None or pos >= len(chime):
+            return result
+        take = min(frames, len(chime) - pos)
+        mixed = result.copy()
+        mixed[:take] = np.clip(mixed[:take] + chime[pos : pos + take], -1.0, 1.0)
+        pos += take
+        with self._lock:
+            if pos >= len(chime):
+                self._chime = None
+                self._chime_pos = 0
+            else:
+                self._chime_pos = pos
+        return mixed
 
     def _update_visualiser(self, result: np.ndarray) -> None:
         """Store RMS + 48-band magnitudes for the Home EQ ring."""

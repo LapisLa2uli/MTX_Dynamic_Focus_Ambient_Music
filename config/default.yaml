@@ -47,6 +47,7 @@ focus_index:
 
 muffling:
   strength: 0.65
+  # 0–1 amount; during a Pomodoro break this is applied then cutoff ÷ 10.
   break_muffling: 0.85
   curve_multiplier: 3.0
 

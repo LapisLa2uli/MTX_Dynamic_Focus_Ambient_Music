@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from adaptive_soundscape.audio.parameters import AudioParameters
 from adaptive_soundscape.audio.placeholder_mixer import PlaceholderMixer
@@ -39,3 +40,23 @@ def test_pomodoro_break_muffling_override():
     assert pomo.muffling_override() == 0.9
     pomo.cancel()
     assert pomo.muffling_override() is None
+
+
+def test_break_cutoff_is_ten_times_lower():
+    from adaptive_soundscape.audio.placeholder_mixer import muffle_cutoff_hz
+
+    work = muffle_cutoff_hz(0.85)
+    brk = muffle_cutoff_hz(1.0 + 0.85)
+    assert work / brk == pytest.approx(10.0, rel=0.02)
+    assert brk < 200.0
+
+
+def test_work_and_break_chimes_are_distinct():
+    from adaptive_soundscape.audio.chimes import render_chime
+
+    work = render_chime("work", 22050)
+    brk = render_chime("break", 22050)
+    n = min(len(work), len(brk))
+    assert not np.allclose(work[:n], brk[:n], atol=1e-3)
+    assert np.max(np.abs(work)) > 0.05
+    assert np.max(np.abs(brk)) > 0.05
