@@ -32,7 +32,7 @@ from adaptive_soundscape.audio.generate_layers import (
 )
 from adaptive_soundscape.audio.music_manifest import MusicIntensity, song_dirs
 from adaptive_soundscape.audio.musicgen_client import MusicGenClient
-from adaptive_soundscape.audio.prompt_builder import build_song_prompt
+from adaptive_soundscape.audio.prompt_builder import build_song_prompt, scenario_bpm
 from adaptive_soundscape.audio.demucs_client import DemucsClient
 from adaptive_soundscape.audio.separate_stems import separate_and_install_stems
 from adaptive_soundscape.audio.sidecar_lifecycle import SidecarLifecycle
@@ -130,12 +130,12 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         loop_seconds = 27.428
-        bpm = 70.0
         failures = 0
         created: list[Path] = []
 
         for scenario in scenarios:
             prefix = args.prefix or f"{scenario}_gen"
+            bpm = scenario_bpm(scenario)
             for i in range(max(1, args.count)):
                 song_id = _next_song_id(assets, scenario, prefix)
                 built = build_song_prompt(
