@@ -277,6 +277,7 @@ class AdaptiveSoundscapeApp:
         self.monitor.start()
         self._timer.start()
         self.window.show()
+        self._overlay.set_dark_mode(self.window.is_dark_mode)
         self._overlay.place_top_right()
         self._overlay.show()
         self._refresh_ui()

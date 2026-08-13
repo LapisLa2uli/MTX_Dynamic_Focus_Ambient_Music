@@ -275,6 +275,8 @@ python scripts/generate_album_songs.py --scenario programming --count 2
 python scripts/generate_album_songs.py --scenario creative_design --count 1 --no-separate --no-ai-layers
 ```
 
+Generated WAVs live under `assets/audio/` (gitignored). Re-run the script after changing prompts to replace `*_gen_*` song folders.
+
 MusicGen song seeds use per-scenario briefs (tempo, instrumentation, and “avoid” lists) aligned with the Focus Music Requirements notes — `build_song_prompt` in `src/adaptive_soundscape/audio/prompt_builder.py` (programming 70 BPM, team workflow 76, reading 62, scientific 68, creative 72).
 
 ---
